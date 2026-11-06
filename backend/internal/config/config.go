@@ -117,6 +117,14 @@ type GitLabConfig struct {
 	HostTokens map[string]string
 }
 
+// GiteaConfig points the Gitea issue tracker at one (typically self-hosted)
+// instance. Empty BaseURL disables the Gitea tracker. The token comes from
+// AO_GITEA_TOKEN / GITEA_TOKEN, read by the adapter per request.
+type GiteaConfig struct {
+	// BaseURL is the instance root, e.g. "http://gitea.lan:3000".
+	BaseURL string
+}
+
 // DefaultAllowedOrigins are the browser origins the daemon's CORS boundary
 // trusts. Workspace previews and unrelated local servers are not trusted
 // API clients. Native callers remain unauthenticated; paired mobile callers
@@ -203,6 +211,9 @@ type Config struct {
 	// GitLab carries the self-managed GitLab host allowlist and per-host
 	// token overrides, loaded once at boot from environment variables.
 	GitLab GitLabConfig
+	// Gitea points the Gitea issue tracker at a self-hosted instance
+	// (AO_GITEA_URL).
+	Gitea GiteaConfig
 	// TrackerIntake gates the issue-intake observer daemon-wide
 	// (AO_TRACKER_INTAKE).
 	TrackerIntake bool
@@ -263,6 +274,7 @@ func (c Config) Addr() string {
 //	AO_TELEMETRY_RETENTION     local event retention (Go duration or days, default 30 days, min 1 day)
 //	AO_GITLAB_ALLOWED_HOSTS    comma-separated self-managed GitLab hosts (each may include :port)
 //	AO_GITLAB_HOST_TOKENS      host=token,host=token per-host token overrides
+//	AO_GITEA_URL               Gitea instance base URL for the issue tracker, e.g. http://gitea.lan:3000 (default: Gitea tracker off)
 //	AO_CLIENT                  client identity reported to clients (trimmed, default empty)
 //	AO_CLOUD_OFFERING          cloud offering off|on (default on)
 //	AO_LOCAL_OFFERING          local offering off|on (default on)
@@ -486,6 +498,8 @@ func Load() (Config, error) {
 		}
 		cfg.GitLab.HostTokens = tokens
 	}
+
+	cfg.Gitea.BaseURL = strings.TrimSpace(os.Getenv("AO_GITEA_URL"))
 
 	if raw, ok := os.LookupEnv("AO_TRACKER_INTAKE"); ok && strings.TrimSpace(raw) != "" {
 		v, err := parseToggleEnv("AO_TRACKER_INTAKE", raw)

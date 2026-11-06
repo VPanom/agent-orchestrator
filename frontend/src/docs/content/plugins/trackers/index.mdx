@@ -1,14 +1,35 @@
 ---
 title: Issue tracking
-description: Opt-in, read-only GitHub and GitLab issue intake.
+description: Opt-in, read-only GitHub, GitLab, and Gitea issue intake.
 ---
 
-Orchestrator has GitHub and GitLab issue adapters. The existing [GitHub intake guide](/plugins/trackers/github) explains the shared opt-in flow; choose `gitlab` for GitLab projects. Linear and external Node tracker plugins are unsupported.
+Orchestrator has GitHub, GitLab, and Gitea issue adapters. The existing [GitHub intake guide](/plugins/trackers/github) explains the shared opt-in flow; choose `gitlab` for GitLab projects and `gitea` for Gitea projects. Gitea needs the daemon setup below. Linear and external Node tracker plugins are unsupported.
 
-Tracker intake needs both a per-project opt-in and the daemon-wide `AO_TRACKER_INTAKE` flag, which defaults off. Once both are on it can discover matching GitHub or GitLab issues and spawn workers, but v1 is read-only toward the tracker: Orchestrator does not comment on or transition issues as agent lifecycle changes.
+Tracker intake needs both a per-project opt-in and the daemon-wide `AO_TRACKER_INTAKE` flag, which defaults off. Once both are on it can discover matching GitHub, GitLab, or Gitea issues and spawn workers, but v1 is read-only toward the tracker: Orchestrator does not comment on or transition issues as agent lifecycle changes.
 
 <Callout type="warn">
 	The tracker lane is still limited. Do not treat issue association as a complete two-way synchronization workflow.
 </Callout>
+
+## Gitea
+
+Gitea support covers issues only; Gitea pull requests are not observed. Orchestrator connects to one Gitea instance, set in the daemon environment:
+
+1. Set `AO_GITEA_URL` to the address you open Gitea at in a browser: `http://` or `https://`, the host, an optional port, and an optional sub-path, such as `http://gitea.lan:3000` or `https://git.example.com/gitea`. Orchestrator adds `/api/v1` itself.
+2. Set `AO_GITEA_TOKEN`, or `GITEA_TOKEN`, to a Gitea access token that can read the repository's issues. `AO_GITEA_TOKEN` wins when both are set.
+3. Restart Orchestrator so its daemon reads the new settings. If the desktop app manages the daemon, quit completely and reopen Orchestrator; on macOS, use **Quit AO Completely** in the menu-bar tray.
+
+For example, in a shell that launches Orchestrator:
+
+```sh
+export AO_GITEA_URL="http://gitea.lan:3000"
+export AO_GITEA_TOKEN="YOUR_GITEA_TOKEN"
+```
+
+These are daemon environment settings, not project settings. Do not put tokens in project JSON or docs. If `AO_GITEA_URL` is not set, or no token is found, Orchestrator does not load the Gitea tracker, and Gitea issue lookups and intake for Gitea projects do nothing. The token is sent only to the `AO_GITEA_URL` host.
+
+Projects whose Git remote is on that instance use Gitea automatically, for `ao spawn --issue` and for intake. `--issue` accepts a number, `owner/repo#N`, or an issue URL such as `http://gitea.lan:3000/owner/repo/issues/7`. For other remotes, pass `--tracker-provider gitea` or set the intake `provider` to `gitea`.
+
+Like the other adapters, Gitea access is read-only: Orchestrator never comments on, labels, or closes Gitea issues. Open Gitea issues map to the `open` state and closed ones to `done`.
 
 Use the SCM capability for pull requests, CI, reviews, and mergeability; those facts are independent from tracker intake.

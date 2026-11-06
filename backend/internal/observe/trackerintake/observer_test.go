@@ -360,7 +360,7 @@ func TestTrackerRepoUsesConfiguredRepo(t *testing.T) {
 			Assignee: "alice",
 		}},
 	}
-	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults())
+	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults(), "")
 	if !ok {
 		t.Fatal("trackerRepo ok = false")
 	}
@@ -440,7 +440,7 @@ func TestTrackerRepoGitLabSelfManagedHost(t *testing.T) {
 			Assignee: "alice",
 		}},
 	}
-	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults())
+	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults(), "")
 	if !ok {
 		t.Fatal("trackerRepo ok = false")
 	}
@@ -465,7 +465,7 @@ func TestTrackerRepoGitLabDotComHostEmpty(t *testing.T) {
 			Assignee: "alice",
 		}},
 	}
-	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults())
+	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults(), "")
 	if !ok {
 		t.Fatal("trackerRepo ok = false")
 	}
@@ -484,7 +484,7 @@ func TestTrackerRepoGitHubHostEmpty(t *testing.T) {
 			Assignee: "alice",
 		}},
 	}
-	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults())
+	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults(), "")
 	if !ok {
 		t.Fatal("trackerRepo ok = false")
 	}
@@ -503,7 +503,7 @@ func TestTrackerRepoGitLabSelfManagedWithPort(t *testing.T) {
 			Assignee: "alice",
 		}},
 	}
-	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults())
+	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults(), "")
 	if !ok {
 		t.Fatal("trackerRepo ok = false")
 	}
@@ -675,5 +675,30 @@ func TestCanonicalIssueIDGitLabHostDisambiguates(t *testing.T) {
 	internal := CanonicalIssueID(domain.TrackerID{Provider: domain.TrackerProviderGitLab, Native: "group/repo#7", Host: "gitlab.internal"})
 	if dotCom == internal {
 		t.Fatalf("gitlab.com and self-managed with same native produced identical IssueID %q", dotCom)
+	}
+}
+
+// InferTrackerProvider maps unknown hosts to gitlab; an origin on the
+// configured Gitea instance must infer gitea instead, with the sub-path
+// stripped from the repo.
+func TestTrackerRepoInfersConfiguredGitea(t *testing.T) {
+	project := domain.ProjectRecord{
+		ID:            "demo",
+		RepoOriginURL: "https://git.example.com/gitea/owner/repo.git",
+		Config: domain.ProjectConfig{TrackerIntake: domain.TrackerIntakeConfig{
+			Enabled:  true,
+			Assignee: "alice",
+		}},
+	}
+	repo, ok := trackerRepo(project, project.Config.TrackerIntake.WithDefaults(), "https://git.example.com/gitea")
+	want := domain.TrackerRepo{Provider: domain.TrackerProviderGitea, Native: "owner/repo"}
+	if !ok || repo != want {
+		t.Fatalf("trackerRepo = %+v, %v; want %+v", repo, ok, want)
+	}
+
+	// Without a configured Gitea URL the existing gitlab inference stands.
+	repo, ok = trackerRepo(project, project.Config.TrackerIntake.WithDefaults(), "")
+	if !ok || repo.Provider != domain.TrackerProviderGitLab {
+		t.Fatalf("unconfigured: trackerRepo = %+v, %v; want gitlab", repo, ok)
 	}
 }

@@ -542,7 +542,7 @@ func Run(buildVersion string) error {
 	// blocked. May be nil (no usable credentials) — the session service's
 	// nil-guard and the intake resolver's backoff both tolerate that
 	// (issue #2685).
-	tracker := newMultiTracker(cfg.GitLab, log)
+	tracker := newMultiTracker(cfg.GitLab, cfg.Gitea, log)
 	codexPlugin := codexagent.New()
 	codexHome, err := codexPlugin.NativeSessionConfigDir(ctx, nil)
 	if err != nil {

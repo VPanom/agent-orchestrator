@@ -9,11 +9,12 @@ import (
 // TrackerProvider identifies an issue-tracker provider implementation.
 type TrackerProvider string
 
-// TrackerProviderGitHub and TrackerProviderGitLab are the supported issue-tracker
-// providers.
+// TrackerProviderGitHub, TrackerProviderGitLab and TrackerProviderGitea are the
+// supported issue-tracker providers.
 const (
 	TrackerProviderGitHub TrackerProvider = "github"
 	TrackerProviderGitLab TrackerProvider = "gitlab"
+	TrackerProviderGitea  TrackerProvider = "gitea"
 )
 
 // TrackerID identifies one issue. Native is the provider's own canonical form
@@ -102,8 +103,8 @@ type ListFilter struct {
 type TrackerIntakeConfig struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// Provider defaults to github when Enabled is true. Supported values:
-	// "github" and "gitlab".
-	Provider TrackerProvider `json:"provider,omitempty" enum:"github,gitlab"`
+	// "github", "gitlab" and "gitea".
+	Provider TrackerProvider `json:"provider,omitempty" enum:"github,gitlab,gitea"`
 	// Repo is the provider-native repository key ("owner/repo" for GitHub,
 	// "group/project" for GitLab). When empty, the intake loop derives it from
 	// the project's repo origin URL.
@@ -149,13 +150,66 @@ func InferTrackerProvider(repoURL string) TrackerProvider {
 	return TrackerProviderGitLab
 }
 
+// GiteaRepoRef reports whether raw points at the Gitea instance rooted at
+// baseURL (e.g. "https://host/gitea") and, if so, returns "owner/repo" plus
+// any path segments after it (["issues", "7"] for an issue URL). raw may be
+// an http(s) URL, an ssh:// URL or an scp-like user@host:path remote.
+// http(s) URLs must match baseURL's host:port and sit under its sub-path,
+// which is stripped. SSH remotes match on hostname alone, because Gitea's SSH
+// port differs from its HTTP port and SSH paths never carry the sub-path.
+func GiteaRepoRef(baseURL, raw string) (repo string, rest []string, ok bool) {
+	base, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || base.Hostname() == "" {
+		return "", nil, false
+	}
+	raw = strings.TrimSpace(raw)
+	var path string
+	if u, err := url.Parse(raw); err == nil && u.Host != "" {
+		switch u.Scheme {
+		case "http", "https":
+			if !strings.EqualFold(u.Host, base.Host) {
+				return "", nil, false
+			}
+			prefix := strings.TrimRight(base.Path, "/")
+			if prefix != "" && u.Path != prefix && !strings.HasPrefix(u.Path, prefix+"/") {
+				return "", nil, false
+			}
+			path = strings.TrimPrefix(u.Path, prefix)
+		case "ssh", "git+ssh":
+			if !strings.EqualFold(u.Hostname(), base.Hostname()) {
+				return "", nil, false
+			}
+			path = u.Path
+		default:
+			return "", nil, false
+		}
+	} else if at := strings.IndexByte(raw, '@'); at >= 0 && !strings.Contains(raw, "://") {
+		host, p, found := strings.Cut(raw[at+1:], ":")
+		if !found || !strings.EqualFold(host, base.Hostname()) {
+			return "", nil, false
+		}
+		path = p
+	} else {
+		return "", nil, false
+	}
+	segs := strings.Split(strings.Trim(path, "/"), "/")
+	if len(segs) < 2 {
+		return "", nil, false
+	}
+	owner, name := segs[0], strings.TrimSuffix(segs[1], ".git")
+	if owner == "" || name == "" {
+		return "", nil, false
+	}
+	return owner + "/" + name, segs[2:], true
+}
+
 // Validate rejects accidental broad intake and unknown providers. An empty
 // provider is accepted here and inferred from the repo URL at use time.
 func (c TrackerIntakeConfig) Validate() error {
 	if !c.Enabled {
 		return nil
 	}
-	if c.Provider != "" && c.Provider != TrackerProviderGitHub && c.Provider != TrackerProviderGitLab {
+	if c.Provider != "" && c.Provider != TrackerProviderGitHub && c.Provider != TrackerProviderGitLab && c.Provider != TrackerProviderGitea {
 		return fmt.Errorf("trackerIntake.provider: unsupported provider %q", c.Provider)
 	}
 	if err := validateNoWhitespaceField("trackerIntake.repo", c.Repo); err != nil {

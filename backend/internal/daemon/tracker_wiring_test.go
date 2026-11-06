@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"testing"
 
+	trackergitea "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/gitea"
 	trackergitlab "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/gitlab"
 	trackermulti "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/multi"
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
@@ -220,7 +221,7 @@ func TestNewMultiTracker_WithGitLabConfig(t *testing.T) {
 	}
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	tracker := newMultiTracker(cfg, log)
+	tracker := newMultiTracker(cfg, config.GiteaConfig{}, log)
 	if tracker == nil {
 		t.Fatal("newMultiTracker = nil, want non-nil when GitLab token is available")
 	}
@@ -334,7 +335,7 @@ func TestWiring_NewMultiTracker_DoesNotProbeGHCLIAtBoot(t *testing.T) {
 	t.Setenv("PATH", binDir)
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	tracker := newMultiTracker(config.GitLabConfig{}, log)
+	tracker := newMultiTracker(config.GitLabConfig{}, config.GiteaConfig{}, log)
 	if tracker == nil {
 		t.Fatal("newMultiTracker = nil, want non-nil: the GitHub slot is lazily constructed and always present")
 	}
@@ -364,5 +365,24 @@ func writeRecordingGHExecutable(t *testing.T, dir string) {
 	content := "#!/bin/sh\necho called >> \"$GH_MARKER\"\nexit 1\n"
 	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(content), 0o755); err != nil {
 		t.Fatalf("write fake gh: %v", err)
+	}
+}
+
+// TestNewMultiTracker_GiteaWiredOnlyWhenConfigured verifies the Gitea
+// sub-tracker is registered iff AO_GITEA_URL is set, using a foreign-host Get
+// (rejected before any network I/O) as the probe.
+func TestNewMultiTracker_GiteaWiredOnlyWhenConfigured(t *testing.T) {
+	t.Setenv("AO_GITEA_TOKEN", "gitea-token")
+	t.Setenv("AO_GITHUB_TOKEN", "gh-token")
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	id := domain.TrackerID{Provider: domain.TrackerProviderGitea, Native: "owner/repo#1", Host: "other.example"}
+
+	_, err := newMultiTracker(config.GitLabConfig{}, config.GiteaConfig{}, log).Get(context.Background(), id)
+	if !errors.Is(err, trackermulti.ErrUnknownProvider) {
+		t.Fatalf("unconfigured: err = %v, want ErrUnknownProvider", err)
+	}
+	_, err = newMultiTracker(config.GitLabConfig{}, config.GiteaConfig{BaseURL: "http://gitea.lan:3000"}, log).Get(context.Background(), id)
+	if !errors.Is(err, trackergitea.ErrHostNotAllowed) {
+		t.Fatalf("configured: err = %v, want ErrHostNotAllowed", err)
 	}
 }
