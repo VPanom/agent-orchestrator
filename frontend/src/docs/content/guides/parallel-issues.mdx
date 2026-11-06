@@ -34,7 +34,7 @@ Orchestrator-managed worktrees live under `~/.ao/data/worktrees`, not `~/.worktr
 
 Standalone workers use a plain directory without a project. Start one with `--standalone --agent <agent>`; do not combine it with project or Git options.
 
-For issue association, choose `--tracker-provider github|gitlab` when needed. Automatic issue intake must be enabled in both daemon and project settings.
+For issue association, choose `--tracker-provider github|gitlab|gitea` when needed; Gitea first needs the [daemon setup](/plugins/trackers#gitea). Automatic issue intake must be enabled in both daemon and project settings.
 
 ## Inspect and clean up
 

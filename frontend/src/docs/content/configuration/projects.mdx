@@ -191,7 +191,7 @@ Standalone workers require an explicit agent. Do not combine `--standalone` with
 
 Orchestrator observes GitHub and GitLab repositories and can use their issue trackers. It resolves a repository from Git identity. The retired `tracker.plugin`, `scm.plugin`, `package`, and `path` settings are not used; see [Migration](/migration) for other old configuration examples. Linear is not supported.
 
-Set `canonicalRepoURL` when a numeric PR claim should use a particular upstream. It does not change checkout or push destinations. For issue spawning, select `--tracker-provider github|gitlab`. See [issue intake](/plugins/trackers) and [source-control setup](/plugins/scm), including self-managed GitLab hosts.
+Set `canonicalRepoURL` when a numeric PR claim should use a particular upstream. It does not change checkout or push destinations. For issue spawning, select `--tracker-provider github|gitlab|gitea`; Gitea first needs the [daemon setup](/plugins/trackers#gitea). See [issue intake](/plugins/trackers) and [source-control setup](/plugins/scm), including self-managed GitLab hosts.
 
 Issue intake starts workers only when both the daemon has `AO_TRACKER_INTAKE=on` and the project has an enabled `trackerIntake` rule. Intake does not comment on or change issues.
 
