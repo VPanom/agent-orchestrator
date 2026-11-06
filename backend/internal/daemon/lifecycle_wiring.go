@@ -370,6 +370,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		SCM:               scmProvider,
 		DataDir:           cfg.DataDir,
 		Tracker:           tracker,
+		GiteaBaseURL:      cfg.Gitea.BaseURL,
 		Telemetry:         telemetry,
 		Milestones:        installMilestones(cfg),
 		Delivery:          lcm.DeliveryTelemetry(),

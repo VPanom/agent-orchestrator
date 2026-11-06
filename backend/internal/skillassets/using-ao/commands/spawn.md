@@ -27,7 +27,7 @@ ao spawn [flags]
 | `--standalone` | Spawn a projectless worker session in an AO-managed directory | Disabled when `--project` is set |
 | `--prompt string` | Initial prompt for the agent | - |
 | `--skip-agent-check` | Skip CLI readiness warnings; the daemon still validates launch readiness | - |
-| `--tracker-provider string` | Issue tracker provider: `github` or `gitlab` | `github` |
+| `--tracker-provider string` | Issue tracker provider: `github`, `gitlab` or `gitea` | `github` |
 
 `--agent` is an alias for `--harness`.
 

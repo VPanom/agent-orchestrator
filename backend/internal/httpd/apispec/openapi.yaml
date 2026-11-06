@@ -21683,6 +21683,7 @@ components:
           enum:
           - github
           - gitlab
+          - gitea
           type: string
       type: object
     SpawnSessionResponse:
@@ -22142,6 +22143,7 @@ components:
           enum:
           - github
           - gitlab
+          - gitea
           type: string
         repo:
           type: string

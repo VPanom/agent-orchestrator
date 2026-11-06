@@ -194,3 +194,54 @@ func TestTrackerIDForIssue_PlainNumberGitHub(t *testing.T) {
 		t.Errorf("Native = %q, want owner/repo#42", id.Native)
 	}
 }
+
+// A Gitea origin is not claimed by any SCM sub-provider, so the
+// --tracker-provider hint decides; Host stays "" (= configured instance).
+func TestTrackerIDForIssue_GiteaHint(t *testing.T) {
+	svc := NewWithDeps(Deps{})
+	project := domain.ProjectRecord{RepoOriginURL: "http://gitea.lan:3000/owner/repo.git"}
+	for _, issue := range []domain.IssueID{"42", "owner/repo#42"} {
+		id, ok := svc.trackerIDForIssue(ports.SpawnConfig{IssueID: issue, TrackerProvider: domain.TrackerProviderGitea}, project)
+		if !ok {
+			t.Fatalf("%s: trackerIDForIssue ok = false", issue)
+		}
+		want := domain.TrackerID{Provider: domain.TrackerProviderGitea, Native: "owner/repo#42"}
+		if id != want {
+			t.Errorf("%s: id = %+v, want %+v", issue, id, want)
+		}
+	}
+}
+
+// With AO_GITEA_URL configured, a Gitea origin (even under a sub-path) and
+// Gitea issue URLs resolve to gitea without any --tracker-provider hint.
+func TestTrackerIDForIssue_ConfiguredGitea(t *testing.T) {
+	svc := NewWithDeps(Deps{GiteaBaseURL: "https://git.example.com/gitea/"})
+	giteaOrigin := domain.ProjectRecord{RepoOriginURL: "https://git.example.com/gitea/owner/repo.git"}
+	githubOrigin := domain.ProjectRecord{RepoOriginURL: "https://github.com/gh/repo.git"}
+	want := domain.TrackerID{Provider: domain.TrackerProviderGitea, Native: "owner/repo#42"}
+
+	cases := []struct {
+		issue   domain.IssueID
+		project domain.ProjectRecord
+	}{
+		{"42", giteaOrigin},            // sub-path stripped from origin
+		{"owner/repo#42", giteaOrigin}, // native form on a Gitea origin
+		{"https://git.example.com/gitea/owner/repo/issues/42", githubOrigin}, // URL wins
+	}
+	for _, c := range cases {
+		id, ok := svc.trackerIDForIssue(ports.SpawnConfig{IssueID: c.issue, TrackerProvider: domain.TrackerProviderGitHub}, c.project)
+		if !ok || id != want {
+			t.Errorf("%s: id = %+v, %v; want %+v", c.issue, id, ok, want)
+		}
+	}
+
+	// URLs on other hosts or sub-paths are not Gitea issues.
+	for _, raw := range []domain.IssueID{
+		"https://git.example.com/other/owner/repo/issues/42",
+		"https://git.example.com/gitea/owner/repo/pulls/42",
+	} {
+		if id, ok := svc.trackerIDForIssue(ports.SpawnConfig{IssueID: raw}, githubOrigin); ok && id.Provider == domain.TrackerProviderGitea {
+			t.Errorf("%s: resolved to gitea %+v", raw, id)
+		}
+	}
+}

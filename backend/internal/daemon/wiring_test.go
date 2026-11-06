@@ -530,7 +530,7 @@ func TestStartTrackerIntake_RunsEvenWithoutEnabledProjects(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := startTrackerIntake(ctx, config.Config{TrackerIntake: true}, store, svc, newMultiTracker(config.GitLabConfig{}, log), log)
+	done := startTrackerIntake(ctx, config.Config{TrackerIntake: true}, store, svc, newMultiTracker(config.GitLabConfig{}, config.GiteaConfig{}, log), log)
 
 	select {
 	case <-done:
@@ -1140,7 +1140,7 @@ func TestWiring_NewMultiTracker_NeverTypedNilWhenNoGitHubToken(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", "")
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	tracker := newMultiTracker(config.GitLabConfig{}, log)
+	tracker := newMultiTracker(config.GitLabConfig{}, config.GiteaConfig{}, log)
 	if tracker == nil {
 		t.Fatal("newMultiTracker = nil, want non-nil: the GitHub slot is lazily constructed and always present")
 	}
@@ -1159,7 +1159,7 @@ func TestWiring_NewMultiTracker_ReturnsNonNilWhenGitHubHasToken(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "")
 
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	tracker := newMultiTracker(config.GitLabConfig{}, log)
+	tracker := newMultiTracker(config.GitLabConfig{}, config.GiteaConfig{}, log)
 	if tracker == nil {
 		t.Fatal("newMultiTracker = nil, want non-nil when GitHub token is available")
 	}

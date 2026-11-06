@@ -27,7 +27,7 @@ func startTrackerIntake(ctx context.Context, cfg config.Config, store *sqlite.St
 	resolver := trackerintake.SingleTrackerResolver{
 		Adapter: tracker,
 	}
-	observer := trackerintake.New(resolver, store, sessions, trackerintake.Config{Logger: logger})
+	observer := trackerintake.New(resolver, store, sessions, trackerintake.Config{Logger: logger, GiteaBaseURL: cfg.Gitea.BaseURL})
 	return observer.Start(ctx)
 }
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	scmgitlab "github.com/aoagents/agent-orchestrator/backend/internal/adapters/scm/gitlab"
+	trackergitea "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/gitea"
 	trackergithub "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/github"
 	trackergitlab "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/gitlab"
 	trackermulti "github.com/aoagents/agent-orchestrator/backend/internal/adapters/tracker/multi"
@@ -85,8 +86,8 @@ func newGitLabTracker(gitlabCfg config.GitLabConfig) (ports.Tracker, error) {
 	})
 }
 
-// newMultiTracker builds a multi-tracker dispatching to both GitHub and
-// GitLab sub-trackers. The daemon builds it once (in Run) and shares the
+// newMultiTracker builds a multi-tracker dispatching to GitHub, GitLab and
+// (when AO_GITEA_URL is set) Gitea sub-trackers. The daemon builds it once (in Run) and shares the
 // instance between the session service and the intake observer. A GitHub
 // token from the environment is validated eagerly at boot; without one, the
 // GitHub adapter stays lazy so the `gh auth token` CLI probe never blocks
@@ -96,7 +97,7 @@ func newGitLabTracker(gitlabCfg config.GitLabConfig) (ports.Tracker, error) {
 // same degrade-gracefully pattern used by newMultiSCMProvider. Callers must
 // tolerate a nil ports.Tracker (the session service's nil-guard handles
 // this).
-func newMultiTracker(gitlabCfg config.GitLabConfig, logger *slog.Logger) ports.Tracker {
+func newMultiTracker(gitlabCfg config.GitLabConfig, giteaCfg config.GiteaConfig, logger *slog.Logger) ports.Tracker {
 	var named []trackermulti.NamedTracker
 
 	// Probing the environment is a cheap read — no subprocess. Only when no
@@ -116,6 +117,15 @@ func newMultiTracker(gitlabCfg config.GitLabConfig, logger *slog.Logger) ports.T
 		logTrackerDisabled(logger, "gitlab", err)
 	} else {
 		named = append(named, trackermulti.NamedTracker{Key: "gitlab", Tracker: t})
+	}
+
+	// Gitea has no public default host, so it is only wired when configured.
+	if giteaCfg.BaseURL != "" {
+		if t, err := trackergitea.New(trackergitea.Options{Token: trackergitea.EnvTokenSource{}, BaseURL: giteaCfg.BaseURL}); err != nil {
+			logTrackerDisabled(logger, "gitea", err)
+		} else {
+			named = append(named, trackermulti.NamedTracker{Key: "gitea", Tracker: t})
+		}
 	}
 
 	if len(named) == 0 {
@@ -184,7 +194,7 @@ func (t *lazyTracker) resolve() (ports.Tracker, error) {
 var _ ports.Tracker = (*lazyTracker)(nil)
 
 func logTrackerDisabled(logger *slog.Logger, provider string, err error) {
-	if errors.Is(err, trackergithub.ErrNoToken) || errors.Is(err, trackergitlab.ErrNoToken) {
+	if errors.Is(err, trackergithub.ErrNoToken) || errors.Is(err, trackergitlab.ErrNoToken) || errors.Is(err, trackergitea.ErrNoToken) {
 		logger.Warn("tracker disabled: no usable token", "provider", provider, "err", err)
 	} else {
 		logger.Warn("tracker disabled: setup failed", "provider", provider, "err", err)

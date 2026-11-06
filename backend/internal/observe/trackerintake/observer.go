@@ -76,6 +76,9 @@ type Config struct {
 	FailureBackoff time.Duration
 	Clock          func() time.Time
 	Logger         *slog.Logger
+	// GiteaBaseURL is the configured Gitea instance (AO_GITEA_URL); project
+	// origins on it infer the gitea provider. Empty disables that.
+	GiteaBaseURL string
 }
 
 // Observer polls configured projects and starts sessions for eligible issues.
@@ -84,6 +87,7 @@ type Observer struct {
 	store          Store
 	spawner        Spawner
 	tick           time.Duration
+	giteaBaseURL   string
 	failureBackoff time.Duration
 	clock          func() time.Time
 	logger         *slog.Logger
@@ -92,7 +96,7 @@ type Observer struct {
 
 // New constructs an Observer with safe defaults.
 func New(resolver TrackerResolver, store Store, spawner Spawner, cfg Config) *Observer {
-	o := &Observer{resolver: resolver, store: store, spawner: spawner, tick: cfg.Tick, failureBackoff: cfg.FailureBackoff, clock: cfg.Clock, logger: cfg.Logger, backoffUntil: map[string]time.Time{}}
+	o := &Observer{resolver: resolver, store: store, spawner: spawner, tick: cfg.Tick, failureBackoff: cfg.FailureBackoff, clock: cfg.Clock, logger: cfg.Logger, giteaBaseURL: cfg.GiteaBaseURL, backoffUntil: map[string]time.Time{}}
 	if o.tick <= 0 {
 		o.tick = DefaultTickInterval
 	}
@@ -172,7 +176,7 @@ func (o *Observer) pollProject(ctx context.Context, project domain.ProjectRecord
 		o.logger.Warn("tracker intake: skipping project with invalid config", "project", project.ID, "err", err)
 		return true
 	}
-	repo, ok := trackerRepo(project, cfg)
+	repo, ok := trackerRepo(project, cfg, o.giteaBaseURL)
 	if !ok {
 		o.logger.Warn("tracker intake: skipping project without tracker scope", "project", project.ID, "provider", cfg.Provider, "origin", project.RepoOriginURL)
 		return true
@@ -331,12 +335,22 @@ func truncateUTF8(s string, maxBytes int) string {
 	return s[:cut]
 }
 
-func trackerRepo(project domain.ProjectRecord, cfg domain.TrackerIntakeConfig) (domain.TrackerRepo, bool) {
+func trackerRepo(project domain.ProjectRecord, cfg domain.TrackerIntakeConfig, giteaBaseURL string) (domain.TrackerRepo, bool) {
+	// InferTrackerProvider maps every non-GitHub host to gitlab, so the
+	// configured Gitea instance must be recognized first.
+	giteaRepo, _, giteaOrigin := domain.GiteaRepoRef(giteaBaseURL, project.RepoOriginURL)
 	provider := cfg.Provider
 	if provider == "" {
-		provider = domain.InferTrackerProvider(project.RepoOriginURL)
+		if giteaOrigin {
+			provider = domain.TrackerProviderGitea
+		} else {
+			provider = domain.InferTrackerProvider(project.RepoOriginURL)
+		}
 	}
 	native := strings.TrimSpace(cfg.Repo)
+	if native == "" && provider == domain.TrackerProviderGitea && giteaOrigin {
+		native = giteaRepo
+	}
 	if native == "" {
 		native, _ = parseRepoNative(project.RepoOriginURL, provider)
 	}

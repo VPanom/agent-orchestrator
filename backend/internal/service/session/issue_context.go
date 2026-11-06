@@ -39,13 +39,23 @@ func (s *Service) trackerIDForIssue(cfg ports.SpawnConfig, project domain.Projec
 	if issue == "" {
 		return domain.TrackerID{}, false
 	}
-	// 1. Try GitHub URL or owner/repo#N native form.
+	// 1. Try GitHub URL or owner/repo#N native form. Gitea shares the
+	// owner/repo#N shape, so a gitea hint or a Gitea origin claims it (never
+	// URLs, which canonicalGitHubIssueNative only accepts for github.com).
 	if native, ok := canonicalGitHubIssueNative(issue); ok {
+		if !strings.Contains(issue, "://") && (cfg.TrackerProvider == domain.TrackerProviderGitea || s.isGiteaOrigin(project)) {
+			return domain.TrackerID{Provider: domain.TrackerProviderGitea, Native: native}, true
+		}
 		return domain.TrackerID{Provider: domain.TrackerProviderGitHub, Native: native}, true
 	}
 	// 2. Try GitLab issue URL (/-/issues/<iid> pattern).
 	if native, host, ok := canonicalGitLabIssueURL(issue); ok {
 		return domain.TrackerID{Provider: domain.TrackerProviderGitLab, Native: native, Host: host}, true
+	}
+	// 2b. Try an issue URL on the configured Gitea instance
+	// (<base>/owner/repo/issues/N).
+	if native, ok := s.canonicalGiteaIssueURL(issue); ok {
+		return domain.TrackerID{Provider: domain.TrackerProviderGitea, Native: native}, true
 	}
 	// 3. Plain issue number — resolve repo from SCM origin or tracker-provider hint.
 	n, err := strconv.Atoi(issue)
@@ -60,6 +70,11 @@ func (s *Service) trackerIDForIssue(cfg ports.SpawnConfig, project domain.Projec
 }
 
 func (s *Service) repoForTracker(project domain.ProjectRecord, fallbackProvider domain.TrackerProvider) (domain.TrackerProvider, string, string, bool) {
+	// An origin on the configured Gitea instance wins: no SCM provider claims
+	// it, and the generic URL heuristic would keep the instance sub-path.
+	if repo, _, ok := domain.GiteaRepoRef(s.giteaBaseURL, project.RepoOriginURL); ok {
+		return domain.TrackerProviderGitea, "", repo, true
+	}
 	if s.scm != nil {
 		repo, ok := s.scm.ParseRepository(project.RepoOriginURL)
 		if ok && repo.Provider != "" && repo.Repo != "" {
@@ -201,6 +216,29 @@ func canonicalGitLabIssueURL(raw string) (native, host string, ok bool) {
 		host = "" // zero value means gitlab.com
 	}
 	return fmt.Sprintf("%s#%d", strings.Join(parts, "/"), n), host, true
+}
+
+func (s *Service) isGiteaOrigin(project domain.ProjectRecord) bool {
+	_, _, ok := domain.GiteaRepoRef(s.giteaBaseURL, project.RepoOriginURL)
+	return ok
+}
+
+// canonicalGiteaIssueURL maps http(s)://<gitea>[/subpath]/owner/repo/issues/N
+// on the configured instance to "owner/repo#N". Host stays "" on the
+// returned ID: it always means the configured instance.
+func (s *Service) canonicalGiteaIssueURL(raw string) (string, bool) {
+	if !strings.HasPrefix(raw, "http://") && !strings.HasPrefix(raw, "https://") {
+		return "", false
+	}
+	repo, rest, ok := domain.GiteaRepoRef(s.giteaBaseURL, raw)
+	if !ok || len(rest) != 2 || rest[0] != "issues" {
+		return "", false
+	}
+	n, err := strconv.Atoi(rest[1])
+	if err != nil || n <= 0 {
+		return "", false
+	}
+	return fmt.Sprintf("%s#%d", repo, n), true
 }
 
 func formatIssueContext(issue domain.Issue) string {
