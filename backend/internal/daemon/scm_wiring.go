@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sync"
 
+	scmgitea "github.com/aoagents/agent-orchestrator/backend/internal/adapters/scm/gitea"
 	scmgithub "github.com/aoagents/agent-orchestrator/backend/internal/adapters/scm/github"
 	scmgitlab "github.com/aoagents/agent-orchestrator/backend/internal/adapters/scm/gitlab"
 	scmmulti "github.com/aoagents/agent-orchestrator/backend/internal/adapters/scm/multi"
@@ -16,11 +17,12 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 )
 
-// startSCMObserver wires the provider-neutral SCM observer with both GitHub
-// and GitLab providers via a multi Provider dispatcher. Missing credentials
+// startSCMObserver wires the provider-neutral SCM observer with the GitHub,
+// GitLab and (when AO_GITEA_URL is set) Gitea providers via a multi Provider
+// dispatcher. Missing credentials
 // for one provider do not prevent the other from starting; the observer is
 // disabled only when no provider has usable credentials.
-func startSCMObserver(ctx context.Context, store *sqlite.Store, lcm *lifecycle.Manager, branchStates scmobserve.BranchStateReconciler, gitlabCfg config.GitLabConfig, reviewRefresher *scmReviewRefresher, logger *slog.Logger) <-chan struct{} {
+func startSCMObserver(ctx context.Context, store *sqlite.Store, lcm *lifecycle.Manager, branchStates scmobserve.BranchStateReconciler, gitlabCfg config.GitLabConfig, giteaCfg config.GiteaConfig, reviewRefresher *scmReviewRefresher, logger *slog.Logger) <-chan struct{} {
 	var named []scmmulti.NamedProvider
 
 	ghProvider, ghErr := newGitHubSCMProvider(logger)
@@ -28,6 +30,14 @@ func startSCMObserver(ctx context.Context, store *sqlite.Store, lcm *lifecycle.M
 		logSCMProviderDisabled(logger, "github", ghErr)
 	} else {
 		named = append(named, scmmulti.NamedProvider{Key: "github", Provider: ghProvider})
+	}
+
+	if giteaCfg.BaseURL != "" {
+		if gtProvider, err := newGiteaSCMProvider(giteaCfg, logger); err != nil {
+			logSCMProviderDisabled(logger, "gitea", err)
+		} else {
+			named = append(named, scmmulti.NamedProvider{Key: scmgitea.ProviderKey, Provider: gtProvider})
+		}
 	}
 
 	glProvider, glErr := newGitLabSCMProvider(gitlabCfg, logger)
@@ -55,6 +65,13 @@ func newGitHubSCMProvider(logger *slog.Logger) (*scmgithub.Provider, error) {
 	return scmgithub.NewProvider(scmgithub.ProviderOptions{Token: tokens, SkipTokenPreflight: true, Logger: logger})
 }
 
+// newGiteaSCMProvider builds the Gitea provider for the instance at
+// AO_GITEA_URL. It is registered ahead of GitLab: it only matches its own
+// configured host, while GitLab treats unknown hosts as self-managed.
+func newGiteaSCMProvider(giteaCfg config.GiteaConfig, logger *slog.Logger) (*scmgitea.Provider, error) {
+	return scmgitea.NewProvider(scmgitea.ProviderOptions{BaseURL: giteaCfg.BaseURL, Token: scmgitea.EnvTokenSource{}, Logger: logger})
+}
+
 func newGitLabSCMProvider(gitlabCfg config.GitLabConfig, logger *slog.Logger) (*scmgitlab.Provider, error) {
 	tokens := scmgitlab.FallbackTokenSource{
 		scmgitlab.EnvTokenSource{EnvVars: []string{"AO_GITLAB_TOKEN"}},
@@ -75,7 +92,8 @@ func newGitLabSCMProvider(gitlabCfg config.GitLabConfig, logger *slog.Logger) (*
 
 func logSCMProviderDisabled(logger *slog.Logger, provider string, err error) {
 	if errors.Is(err, scmgithub.ErrNoToken) || errors.Is(err, scmgithub.ErrAuthFailed) ||
-		errors.Is(err, scmgitlab.ErrNoToken) || errors.Is(err, scmgitlab.ErrAuthFailed) {
+		errors.Is(err, scmgitlab.ErrNoToken) || errors.Is(err, scmgitlab.ErrAuthFailed) ||
+		errors.Is(err, scmgitea.ErrNoToken) || errors.Is(err, scmgitea.ErrAuthFailed) {
 		logger.Warn("scm provider disabled: no usable token", "provider", provider, "err", err)
 	} else {
 		logger.Warn("scm provider disabled: setup failed", "provider", provider, "err", err)
@@ -85,10 +103,15 @@ func logSCMProviderDisabled(logger *slog.Logger, provider string, err error) {
 // newMultiSCMProvider builds a multi-provider for use outside the polling
 // observer (e.g. session service PR claiming). Returns nil when no provider
 // has usable credentials — callers must tolerate a nil SCM.
-func newMultiSCMProvider(gitlabCfg config.GitLabConfig, logger *slog.Logger) *scmmulti.Provider {
+func newMultiSCMProvider(gitlabCfg config.GitLabConfig, giteaCfg config.GiteaConfig, logger *slog.Logger) *scmmulti.Provider {
 	var named []scmmulti.NamedProvider
 	if gh, err := newGitHubSCMProvider(logger); err == nil {
 		named = append(named, scmmulti.NamedProvider{Key: "github", Provider: gh})
+	}
+	if giteaCfg.BaseURL != "" {
+		if gt, err := newGiteaSCMProvider(giteaCfg, logger); err == nil {
+			named = append(named, scmmulti.NamedProvider{Key: scmgitea.ProviderKey, Provider: gt})
+		}
 	}
 	if gl, err := newGitLabSCMProvider(gitlabCfg, logger); err == nil {
 		named = append(named, scmmulti.NamedProvider{Key: "gitlab", Provider: gl})
@@ -104,10 +127,15 @@ func newMultiSCMProvider(gitlabCfg config.GitLabConfig, logger *slog.Logger) *sc
 // token), the multi-merger still routes to the healthy one — same
 // degrade-gracefully pattern as newMultiSCMProvider. Returns nil when no
 // provider has usable credentials.
-func newMultiSCMMerger(gitlabCfg config.GitLabConfig, logger *slog.Logger) *scmmulti.Merger {
+func newMultiSCMMerger(gitlabCfg config.GitLabConfig, giteaCfg config.GiteaConfig, logger *slog.Logger) *scmmulti.Merger {
 	var named []scmmulti.NamedMerger
 	if gh, err := newGitHubSCMProvider(logger); err == nil {
 		named = append(named, scmmulti.NamedMerger{Key: "github", Merger: gh})
+	}
+	if giteaCfg.BaseURL != "" {
+		if gt, err := newGiteaSCMProvider(giteaCfg, logger); err == nil {
+			named = append(named, scmmulti.NamedMerger{Key: scmgitea.ProviderKey, Merger: gt})
+		}
 	}
 	if gl, err := newGitLabSCMProvider(gitlabCfg, logger); err == nil {
 		named = append(named, scmmulti.NamedMerger{Key: "gitlab", Merger: gl})

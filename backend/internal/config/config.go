@@ -117,7 +117,7 @@ type GitLabConfig struct {
 	HostTokens map[string]string
 }
 
-// GiteaConfig points the Gitea issue tracker at one (typically self-hosted)
+// GiteaConfig points the Gitea issue tracker and SCM provider at one (typically self-hosted)
 // instance. Empty BaseURL disables the Gitea tracker. The token comes from
 // AO_GITEA_TOKEN / GITEA_TOKEN, read by the adapter per request.
 type GiteaConfig struct {
@@ -211,7 +211,7 @@ type Config struct {
 	// GitLab carries the self-managed GitLab host allowlist and per-host
 	// token overrides, loaded once at boot from environment variables.
 	GitLab GitLabConfig
-	// Gitea points the Gitea issue tracker at a self-hosted instance
+	// Gitea points the Gitea issue tracker and SCM provider at a self-hosted instance
 	// (AO_GITEA_URL).
 	Gitea GiteaConfig
 	// TrackerIntake gates the issue-intake observer daemon-wide
@@ -274,7 +274,7 @@ func (c Config) Addr() string {
 //	AO_TELEMETRY_RETENTION     local event retention (Go duration or days, default 30 days, min 1 day)
 //	AO_GITLAB_ALLOWED_HOSTS    comma-separated self-managed GitLab hosts (each may include :port)
 //	AO_GITLAB_HOST_TOKENS      host=token,host=token per-host token overrides
-//	AO_GITEA_URL               Gitea instance base URL for the issue tracker, e.g. http://gitea.lan:3000 (default: Gitea tracker off)
+//	AO_GITEA_URL               Gitea instance base URL for issues and pull requests, e.g. http://gitea.lan:3000 (default: Gitea off)
 //	AO_CLIENT                  client identity reported to clients (trimmed, default empty)
 //	AO_CLOUD_OFFERING          cloud offering off|on (default on)
 //	AO_LOCAL_OFFERING          local offering off|on (default on)

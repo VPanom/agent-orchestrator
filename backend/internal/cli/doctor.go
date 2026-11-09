@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,6 +25,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/registry"
 	"github.com/aoagents/agent-orchestrator/backend/internal/agentlaunch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/tmuxbin"
 )
 
@@ -54,9 +56,11 @@ const (
 	doctorSectionAgents         = "Agent harnesses"
 	doctorSectionGitHub         = "GitHub"
 	doctorSectionGitLab         = "GitLab"
+	doctorSectionGitea          = "Gitea"
 	minGitVersion               = "2.25.0"
 	githubDoctorUserAgent       = "ao-agent-orchestrator/doctor"
 	gitlabDoctorUserAgent       = "ao-agent-orchestrator/doctor"
+	giteaDoctorUserAgent        = "ao-agent-orchestrator/doctor"
 	defaultDoctorGitHubRESTBase = "https://api.github.com"
 	defaultDoctorGitLabRESTBase = "https://gitlab.com/api/v4"
 )
@@ -229,6 +233,12 @@ func (c *commandContext) runDoctor(ctx context.Context) []doctorCheck {
 		}))
 	}
 	checks = append(checks, c.checkCodexLaunchFlags(ctx), c.checkGitHubToken(ctx), c.checkGitLabToken(ctx))
+	if cfg.Gitea.BaseURL == "" {
+		checks = append(checks, doctorCheck{Level: doctorPass, Section: doctorSectionGitea, Name: "gitea-url", Message: "not configured (set AO_GITEA_URL to enable Gitea issues and pull requests)"})
+	} else {
+		repos, reposErr := c.giteaProjectRepos(ctx, cfg.Gitea.BaseURL)
+		checks = append(checks, c.checkGitea(ctx, cfg.Gitea.BaseURL, repos, reposErr)...)
+	}
 	return checks
 }
 
@@ -724,6 +734,119 @@ func (c *commandContext) checkGitLabToken(ctx context.Context) doctorCheck {
 		login = "unknown user"
 	}
 	return doctorCheck{Level: doctorPass, Section: doctorSectionGitLab, Name: "gitlab-token", Message: fmt.Sprintf("%s token valid for %s", source, login)}
+}
+
+// checkGitea verifies the Gitea instance AO uses for issues and pull
+// requests: the URL, a token, API reachability with that token, and read
+// access to each registered project's repository. The token is never printed.
+func (c *commandContext) checkGitea(ctx context.Context, baseURL string, repos []string, reposErr error) []doctorCheck {
+	check := func(level doctorLevel, name, msg string) doctorCheck {
+		return doctorCheck{Level: level, Section: doctorSectionGitea, Name: name, Message: msg}
+	}
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return []doctorCheck{check(doctorFail, "gitea-url", "AO_GITEA_URL must be http(s)://host[:port][/path] without credentials")}
+	}
+	base := u.Scheme + "://" + u.Host + strings.TrimRight(u.Path, "/")
+	checks := []doctorCheck{check(doctorPass, "gitea-url", base)}
+
+	token, source := "", ""
+	for _, name := range []string{"AO_GITEA_TOKEN", "GITEA_TOKEN"} {
+		if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+			token, source = v, name
+			break
+		}
+	}
+	if token == "" {
+		return append(checks, check(doctorWarn, "gitea-token", "no Gitea token found (set AO_GITEA_TOKEN or GITEA_TOKEN)"))
+	}
+	checks = append(checks, check(doctorPass, "gitea-token", "found in "+source))
+
+	get := func(path string) (int, []byte, error) {
+		reqCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+		defer cancel()
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, base+"/api/v1"+path, http.NoBody)
+		if err != nil {
+			return 0, nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", giteaDoctorUserAgent)
+		req.Header.Set("Authorization", "token "+token)
+		resp, err := c.deps.HTTPClient.Do(req)
+		if err != nil {
+			return 0, nil, err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return resp.StatusCode, body, err
+	}
+
+	status, body, err := get("/user")
+	switch {
+	case err != nil:
+		return append(checks, check(doctorFail, "gitea-api", fmt.Sprintf("Gitea API at %s unreachable: %v", base, err)))
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return append(checks, check(doctorFail, "gitea-api", fmt.Sprintf("%s token rejected by Gitea (HTTP %d)", source, status)))
+	case status < 200 || status >= 300:
+		return append(checks, check(doctorFail, "gitea-api", fmt.Sprintf("Gitea API probe returned HTTP %d (is AO_GITEA_URL the instance root?)", status)))
+	}
+	var user struct {
+		Login string `json:"login"`
+	}
+	if err := json.Unmarshal(body, &user); err != nil || user.Login == "" {
+		return append(checks, check(doctorFail, "gitea-api", "Gitea API probe returned an unexpected response (is AO_GITEA_URL the instance root?)"))
+	}
+	checks = append(checks, check(doctorPass, "gitea-api", fmt.Sprintf("%s token valid for %s", source, user.Login)))
+
+	if reposErr != nil {
+		return append(checks, check(doctorWarn, "gitea-repo", "repository access not checked: could not list registered projects: "+reposErr.Error()))
+	}
+	if len(repos) == 0 {
+		return append(checks, check(doctorPass, "gitea-repo", "no registered project uses this Gitea instance"))
+	}
+	for _, repo := range repos {
+		owner, name, _ := strings.Cut(repo, "/")
+		status, _, err := get("/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(name))
+		switch {
+		case err != nil:
+			checks = append(checks, check(doctorFail, "gitea-repo", fmt.Sprintf("%s: %v", repo, err)))
+		case status >= 200 && status < 300:
+			checks = append(checks, check(doctorPass, "gitea-repo", "token can read "+repo))
+		case status == http.StatusNotFound || status == http.StatusUnauthorized || status == http.StatusForbidden:
+			checks = append(checks, check(doctorFail, "gitea-repo", fmt.Sprintf("%s token cannot read %s (HTTP %d)", source, repo, status)))
+		default:
+			checks = append(checks, check(doctorWarn, "gitea-repo", fmt.Sprintf("%s: probe returned HTTP %d", repo, status)))
+		}
+	}
+	return checks
+}
+
+// giteaProjectRepos lists the "owner/repo" of every registered project (and
+// workspace child) whose origin is on the Gitea instance, via the daemon.
+func (c *commandContext) giteaProjectRepos(ctx context.Context, baseURL string) ([]string, error) {
+	var list projectListResult
+	if err := c.getJSON(ctx, "projects", &list); err != nil {
+		return nil, err
+	}
+	var repos []string
+	seen := map[string]bool{}
+	add := func(origin string) {
+		if repo, _, ok := domain.GiteaRepoRef(baseURL, origin); ok && !seen[strings.ToLower(repo)] {
+			seen[strings.ToLower(repo)] = true
+			repos = append(repos, repo)
+		}
+	}
+	for _, summary := range list.Projects {
+		project, err := c.fetchProjectDetails(ctx, summary.ID)
+		if err != nil {
+			continue
+		}
+		add(project.Repo)
+		for _, child := range project.WorkspaceRepos {
+			add(child.Repo)
+		}
+	}
+	return repos, nil
 }
 
 func (c *commandContext) gitlabToken(ctx context.Context) (token, source string, err error) {

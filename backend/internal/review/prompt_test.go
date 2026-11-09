@@ -64,3 +64,14 @@ func TestReviewPromptRequiresInlineCommentsForRequiredChanges(t *testing.T) {
 		t.Fatalf("review prompt still makes inline comments optional:\n%s", prompt)
 	}
 }
+
+func TestReviewTextsAddsGiteaPostingOnlyForGiteaPRs(t *testing.T) {
+	gh, _ := reviewTexts(LaunchSpec{WorkerID: "w", PRURL: "https://github.com/o/r/pull/1"})
+	if strings.Contains(gh, "Gitea PRs") {
+		t.Fatal("GitHub prompt mentions Gitea")
+	}
+	gt, _ := reviewTexts(LaunchSpec{WorkerID: "w", PRURL: "https://gitea.example/o/r/pulls/1"})
+	if !strings.Contains(gt, "Gitea PRs") || !strings.Contains(gt, `"comments"`) {
+		t.Fatalf("Gitea prompt lacks posting instructions:\n%s", gt)
+	}
+}

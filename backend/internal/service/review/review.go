@@ -86,6 +86,7 @@ type Service struct {
 	store              Store
 	requester          ports.SCMReviewRequester
 	resolver           ports.SCMReviewResolver
+	poster             ports.SCMReviewPoster
 	clock              func() time.Time
 	telemetry          ports.EventSink
 	codexOperationGate ports.CodexOperationGate
@@ -183,6 +184,12 @@ func WithClock(clock func() time.Time) Option {
 // WithReviewRequester wires provider-backed re-review requests.
 func WithReviewRequester(requester ports.SCMReviewRequester) Option {
 	return func(s *Service) { s.requester = requester }
+}
+
+// WithReviewPoster wires daemon-side review posting for providers whose
+// reviewer cannot post with its own CLI tooling (Gitea).
+func WithReviewPoster(poster ports.SCMReviewPoster) Option {
+	return func(s *Service) { s.poster = poster }
 }
 
 // WithReviewResolver wires provider-backed review-thread resolution.
@@ -364,9 +371,45 @@ func reviewRequestRef(pr domain.PullRequest) (ports.SCMPRRef, error) {
 	return ports.SCMPRRef{Repo: repo, Number: pr.Number, URL: pr.URL}, nil
 }
 
+// postReview posts the review through the SCM provider when the reviewer
+// supplied no provider review id and the PR's provider supports it. A failure
+// leaves the id empty, the same outcome as a reviewer whose own post failed.
+func (s *Service) postReview(ctx context.Context, workerID domain.SessionID, run domain.ReviewRun, review SubmittedReview) string {
+	if s.poster == nil || review.GithubReviewID != "" {
+		return review.GithubReviewID
+	}
+	prs, err := s.store.ListPRsBySession(ctx, workerID)
+	if err != nil {
+		return ""
+	}
+	pr, ok := selectRereviewPR(prs, run.PRURL)
+	if !ok {
+		return ""
+	}
+	ref, err := reviewRequestRef(pr)
+	if err != nil {
+		return ""
+	}
+	body := review.Body
+	if strings.TrimSpace(body) == "" {
+		body = "AO review: " + string(review.Verdict)
+	}
+	id, err := s.poster.PostReview(ctx, ports.SCMReviewPostRequest{PR: ref, CommitSHA: run.TargetSHA, Body: body, Comments: review.Comments})
+	if err != nil {
+		if !errors.Is(err, ports.ErrSCMUnsupported) {
+			slog.Default().Warn("review: post review to provider failed", "pr", run.PRURL, "run", run.ID, "err", err)
+		}
+		return ""
+	}
+	return id
+}
+
 func providerFromPRURL(raw string) string {
 	if strings.Contains(raw, "/-/merge_requests/") {
 		return "gitlab"
+	}
+	if strings.Contains(raw, "/pulls/") {
+		return "gitea"
 	}
 	if strings.Contains(raw, "/pull/") {
 		return "github"
@@ -818,6 +861,9 @@ type SubmittedReview struct {
 	Verdict        domain.ReviewVerdict
 	Body           string
 	GithubReviewID string
+	// Comments are inline findings for AO to post on the provider when the
+	// reviewer could not post the review itself (Gitea PRs).
+	Comments []ports.SCMReviewComment
 }
 
 // Submit records a reviewer's result for a specific worker review pass.
@@ -913,6 +959,7 @@ func (s *Service) submitOne(ctx context.Context, workerID domain.SessionID, revi
 		if !found {
 			return domain.ReviewRun{}, fmt.Errorf("%w: worker session %q", ErrNotFound, workerID)
 		}
+		githubReviewID = s.postReview(ctx, workerID, run, review)
 		updated, err := s.store.UpdateReviewRunResult(ctx, run.ID, domain.ReviewRunComplete, verdict, body, githubReviewID, session.AutoInjectReview)
 		if err != nil {
 			return domain.ReviewRun{}, err

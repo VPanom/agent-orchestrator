@@ -356,7 +356,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.StringArrayVar(&opts.symlink, "symlink", nil, "Repo-relative path to symlink into workspaces (repeatable)")
 	f.StringArrayVar(&opts.postCreate, "post-create", nil, "Command to run after workspace creation (repeatable)")
 	f.StringArrayVar(&opts.preRemove, "pre-remove", nil, "Command to run before workspace removal (repeatable)")
-	f.BoolVar(&opts.trackerIntake, "tracker-intake", false, "Opt this project into issue intake (GitHub or GitLab; provider inferred from git origin). Inert unless the daemon also has AO_TRACKER_INTAKE=on")
+	f.BoolVar(&opts.trackerIntake, "tracker-intake", false, "Opt this project into issue intake (GitHub, GitLab or Gitea; provider inferred from git origin, Gitea when it matches AO_GITEA_URL). Inert unless the daemon also has AO_TRACKER_INTAKE=on")
 	f.StringVar(&opts.trackerRepo, "tracker-repo", "", "Provider-native repo for issue intake (owner/repo or group/subgroup/repo; default: derive from git origin)")
 	f.StringVar(&opts.trackerAssignee, "tracker-assignee", "", "Issue assignee required for intake eligibility")
 	f.StringArrayVar(&opts.reviewers, "reviewer", nil, "Reviewer harness that reviews worker PRs (repeatable; e.g. claude-code)")

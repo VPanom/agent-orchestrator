@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -201,6 +202,26 @@ func GiteaRepoRef(baseURL, raw string) (repo string, rest []string, ok bool) {
 		return "", nil, false
 	}
 	return owner + "/" + name, segs[2:], true
+}
+
+// GiteaPullRef reports whether raw is a pull request web URL
+// (".../owner/repo/pulls/N") on the Gitea instance rooted at baseURL.
+func GiteaPullRef(baseURL, raw string) (repo string, number int, ok bool) {
+	repo, rest, ok := GiteaRepoRef(baseURL, raw)
+	if !ok || len(rest) != 2 || rest[0] != "pulls" {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(rest[1])
+	if err != nil || n <= 0 {
+		return "", 0, false
+	}
+	return repo, n, true
+}
+
+// GiteaPullURL builds the canonical web URL of pull request number in repo
+// ("owner/repo") on the instance at baseURL, keeping any sub-path.
+func GiteaPullURL(baseURL, repo string, number int) string {
+	return strings.TrimRight(strings.TrimSpace(baseURL), "/") + "/" + repo + "/pulls/" + strconv.Itoa(number)
 }
 
 // Validate rejects accidental broad intake and unknown providers. An empty

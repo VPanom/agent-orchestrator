@@ -456,6 +456,8 @@ func setConfigEnv(t *testing.T) testConfig {
 	t.Setenv("AO_PORT", "3001")
 	t.Setenv("AO_PROJECT_ID", "")
 	t.Setenv("AO_REQUEST_TIMEOUT", "")
+	// Keep a developer's real Gitea instance out of doctor probes.
+	t.Setenv("AO_GITEA_URL", "")
 	t.Setenv("AO_SHUTDOWN_TIMEOUT", "")
 	// Claude hooks forward this ambient marker; a suite run from inside Claude
 	// Code must not leak it into exact hook-body assertions.

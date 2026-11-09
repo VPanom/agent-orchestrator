@@ -354,7 +354,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		CodexOperationGate:  codexOperationGate,
 	})
 	mgr.SetAgentReadiness(agentReadiness)
-	scmProvider := newMultiSCMProvider(cfg.GitLab, log)
+	scmProvider := newMultiSCMProvider(cfg.GitLab, cfg.Gitea, log)
 	// Attach the operator's GitHub login to product telemetry only when its carrier
 	// event can actually be sent, and guard the typed nil from newMultiSCMProvider
 	// so the interface stays nil (degrading to anonymous) rather than wrapping a
@@ -417,6 +417,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		reviewOpts = append(reviewOpts,
 			reviewsvc.WithReviewRequester(scmProvider),
 			reviewsvc.WithReviewResolver(scmProvider),
+			reviewsvc.WithReviewPoster(scmProvider),
 		)
 	}
 	reviewOpts = append(reviewOpts, reviewsvc.WithPRRefresher(reviewPRRefresher{sessions: sessionSvc}))

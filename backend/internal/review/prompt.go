@@ -41,7 +41,25 @@ Do these steps in order:
 
 Only if step 1 genuinely fails on the provider for a PR, still include that run in step 2 with an empty githubReviewId so the result is recorded.`,
 		spec.WorkerID, queueText, spec.WorkerID)
+	if hasGiteaPR(spec) {
+		prompt += `
+
+Gitea PRs (URLs ending in /{owner}/{repo}/pulls/{number}): gh cannot reach Gitea, so skip step 1 for them. In step 2, give each such run an empty githubReviewId and put its inline findings on that run's object as "comments": [ { "path": "<file>", "line": <n>, "body": "<finding>" } ], using the line number in the new version of the file. AO posts the review with those inline comments on Gitea for you.`
+	}
 	return prompt, systemPrompt
+}
+
+// hasGiteaPR reports whether any queued PR uses Gitea's /pulls/N URL shape.
+func hasGiteaPR(spec LaunchSpec) bool {
+	if strings.Contains(spec.PRURL, "/pulls/") {
+		return true
+	}
+	for _, task := range spec.ReviewQueue {
+		if strings.Contains(task.PRURL, "/pulls/") {
+			return true
+		}
+	}
+	return false
 }
 
 func reviewSystemPrompt() string {

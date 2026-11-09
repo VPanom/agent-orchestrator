@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 func (c *commandContext) resolvePRRef(ctx context.Context, ref string, project projectDetails) (string, error) {
@@ -31,12 +34,23 @@ func (c *commandContext) resolvePRRef(ctx context.Context, ref string, project p
 			}
 			repo = strings.TrimSpace(string(out))
 		}
+		// Gitea's SSH port differs from its web port, so the web URL comes from
+		// the configured instance rather than the remote's host.
+		if giteaRepo, _, ok := domain.GiteaRepoRef(os.Getenv("AO_GITEA_URL"), repo); ok {
+			n, _ := strconv.Atoi(strings.TrimPrefix(ref, "#"))
+			return domain.GiteaPullURL(os.Getenv("AO_GITEA_URL"), giteaRepo, n), nil
+		}
 		host, owner, name, err := cliRepoFromURL(repo)
 		if err != nil {
 			return "", usageError{errors.New("PR reference must be a PR/MR URL or a number")}
 		}
 		n, _ := strconv.Atoi(strings.TrimPrefix(ref, "#"))
 		return cliPRURLFromParts(host, owner, name, n), nil
+	}
+	// A Gitea PR URL may sit under an instance sub-path, which rebuilding
+	// from host/owner/repo would drop; pass its canonical form through.
+	if cr, err := domain.ParseChangeRequestURL(ref); err == nil && cr.Provider == "gitea" {
+		return cr.URL, nil
 	}
 	host, owner, name, n, err := cliParsePRURL(ref)
 	if err != nil || host == "" || owner == "" || name == "" || n <= 0 {

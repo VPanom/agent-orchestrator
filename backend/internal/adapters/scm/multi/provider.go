@@ -241,6 +241,23 @@ func (m *Provider) ResolveReviewThread(ctx context.Context, request ports.SCMRev
 	return resolver.ResolveReviewThread(ctx, request)
 }
 
+// PostReview delegates to the sub-provider matching request.PR.Repo.Provider
+// when that provider can post reviews on the reviewer's behalf.
+func (m *Provider) PostReview(ctx context.Context, request ports.SCMReviewPostRequest) (string, error) {
+	if m == nil {
+		return "", fmt.Errorf("%w: review poster is unavailable", ports.ErrSCMUnsupported)
+	}
+	p, err := m.resolve(request.PR.Repo.Provider)
+	if err != nil {
+		return "", err
+	}
+	poster, ok := p.(ports.SCMReviewPoster)
+	if !ok {
+		return "", fmt.Errorf("%w: review posting for provider %q", ports.ErrSCMUnsupported, request.PR.Repo.Provider)
+	}
+	return poster.PostReview(ctx, request)
+}
+
 type branchPRLister interface {
 	ListOpenPRsByBranch(ctx context.Context, repo ports.SCMRepo, branch string) ([]ports.SCMPRObservation, error)
 }
