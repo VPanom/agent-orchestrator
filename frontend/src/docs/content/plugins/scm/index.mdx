@@ -1,9 +1,9 @@
 ---
 title: Source control and pull requests
-description: GitHub and GitLab source-control observation, authentication, and actions.
+description: GitHub, GitLab, and Gitea source-control observation, authentication, and actions.
 ---
 
-Orchestrator watches GitHub pull requests and GitLab merge requests associated with active sessions. It shows their state, checks, mergeability, and reviews in lifecycle and desktop views. Some review and check details differ by provider.
+Orchestrator watches GitHub pull requests, GitLab merge requests, and Gitea pull requests associated with active sessions. It shows their state, checks, mergeability, and reviews in lifecycle and desktop views. Some review and check details differ by provider.
 
 The provider tracks:
 
@@ -30,5 +30,19 @@ export AO_GITLAB_HOST_TOKENS="gitlab.example.com=YOUR_GITLAB_TOKEN"
 Replace `YOUR_GITLAB_TOKEN` with the token for that host. These are daemon environment settings, not project settings. Do not put tokens in project JSON or docs. Without a host-specific token, Orchestrator uses `AO_GITLAB_TOKEN`, then `GITLAB_TOKEN`, then authenticated `glab` credentials.
 
 When a numeric PR/MR reference is ambiguous, include its full URL. If the Git remote points to a fork but claims should target the upstream, set the project's `canonicalRepoURL`. This trusts the upstream for claims without changing where Orchestrator checks out or pushes. A claim records ownership; it does not check out the PR/MR branch. Orchestrator sends merge actions to the owning provider. GitHub review actions may differ on GitLab.
+
+## Gitea
+
+Gitea pull requests use the same daemon settings as the [Gitea tracker](/plugins/trackers#gitea): `AO_GITEA_URL` names the one instance, and `AO_GITEA_TOKEN`, then `GITEA_TOKEN`, supplies the token. The token needs read access to the repository; merging, requesting reviewers, and posting AO reviews also need write access. The token is only sent to the `AO_GITEA_URL` host.
+
+A project uses Gitea when its Git remote is on that instance. HTTPS remotes must match the URL's host, port, and sub-path. SSH remotes match on the hostname alone, because Gitea's SSH port usually differs from its web port, so `ssh://git@gitea.example.com:2222/owner/repo.git` matches `AO_GITEA_URL=https://gitea.example.com`.
+
+- PR references: `ao session claim-pr`, `ao spawn --claim-pr`, and `ao review trigger --pr` accept a number or a Gitea URL such as `https://gitea.example.com/owner/repo/pulls/24`, including any sub-path. The CLI resolves a bare number through `AO_GITEA_URL`, so set it in the shell that runs `ao` as well as for the daemon.
+- Checks come from the head commit's combined commit status, which is where Gitea Actions and external CI report. Failed-check log tails are not fetched.
+- Reviews: the latest approval or change request per reviewer decides the review state. Inline review comments are grouped into threads by file and line. Gitea has no API to resolve review conversations, so resolve them in the Gitea web UI.
+- AO native review: the reviewer cannot post to Gitea itself, so it hands its inline findings to `ao review submit`, and the daemon posts them as a comment review.
+- Merge actions squash-merge and are rejected if the PR head moved since it was reviewed.
+
+Run `ao doctor` to check the Gitea URL, that a token is found, that the API accepts it, and that it can read each registered Gitea project's repository. The token is never printed.
 
 See [GitHub SCM](/plugins/scm/github) for authentication and the current action surface.

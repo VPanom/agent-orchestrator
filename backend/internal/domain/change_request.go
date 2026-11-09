@@ -34,7 +34,9 @@ type RepositoryRename struct {
 	Name    string
 }
 
-// ParseChangeRequestURL accepts complete GitHub PR and GitLab MR web URLs.
+// ParseChangeRequestURL accepts complete GitHub PR, GitLab MR and Gitea PR
+// web URLs. A Gitea URL (".../owner/repo/pulls/N" on a non-GitHub host) may
+// sit under an instance sub-path, which is kept in the returned URL.
 // It never fetches the URL or grants SCM tracking authority.
 func ParseChangeRequestURL(raw string) (ChangeRequestReference, error) {
 	if raw == "" || len(raw) > 2048 || strings.TrimSpace(raw) != raw {
@@ -55,7 +57,12 @@ func ParseChangeRequestURL(raw string) (ChangeRequestReference, error) {
 	}
 	var repoParts []string
 	var numberText string
+	prefix := ""
 	switch {
+	case provider != "github" && len(parts) >= 4 && parts[len(parts)-2] == "pulls":
+		provider = "gitea"
+		prefix = strings.Join(parts[:len(parts)-4], "/")
+		repoParts, numberText = parts[len(parts)-4:len(parts)-2], parts[len(parts)-1]
 	case provider == "github" && len(parts) == 4 && parts[2] == "pull":
 		repoParts, numberText = parts[:2], parts[3]
 	case provider == "gitlab" && len(parts) >= 5 && parts[len(parts)-3] == "-" && parts[len(parts)-2] == "merge_requests":
@@ -81,8 +88,11 @@ func ParseChangeRequestURL(raw string) (ChangeRequestReference, error) {
 		}
 	}
 	path := "/" + name + "/pull/" + strconv.Itoa(number)
-	if provider == "gitlab" {
+	switch provider {
+	case "gitlab":
 		path = "/" + name + "/-/merge_requests/" + strconv.Itoa(number)
+	case "gitea":
+		path = "/" + strings.TrimPrefix(prefix+"/"+name, "/") + "/pulls/" + strconv.Itoa(number)
 	}
 	return ChangeRequestReference{URL: u.Scheme + "://" + host + path, Provider: provider, Host: host, Repository: name, Number: number}, nil
 }

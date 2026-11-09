@@ -12,6 +12,8 @@ func TestParseChangeRequestURL(t *testing.T) {
 		{"http://github.com/OWNER/Repo/pull/042/", "https://github.com/owner/repo/pull/42", "github|github.com|owner/repo|42"},
 		{"https://www.github.com/Owner/Repo/pull/42", "https://github.com/owner/repo/pull/42", "github|github.com|owner/repo|42"},
 		{"https://gitlab.com/group/sub/repo/-/merge_requests/9", "https://gitlab.com/group/sub/repo/-/merge_requests/9", "gitlab|gitlab.com|group/sub/repo|9"},
+		{"https://gitea.panom.se/owner/repo/pulls/24", "https://gitea.panom.se/owner/repo/pulls/24", "gitea|gitea.panom.se|owner/repo|24"},
+		{"http://host:3000/gitea/owner/repo/pulls/7", "http://host:3000/gitea/owner/repo/pulls/7", "gitea|host:3000|owner/repo|7"},
 	}
 	for _, tc := range tests {
 		got, err := ParseChangeRequestURL(tc.input)
@@ -25,6 +27,7 @@ func TestParseChangeRequestURL(t *testing.T) {
 		"https://github.com/o/r/pull/1?x=1", "https://github.com/o/r/pull/1#x",
 		"https://user:pass@github.com/o/r/pull/1", "https://github.com:123/o/r/pull/1",
 		"https://gitlab.com/group/repo/-/merge_requests/nope", "https://gitlab.com/a/-/merge_requests/1",
+		"https://gitea.panom.se/owner/repo/pulls/0", "https://gitea.panom.se/repo/pulls/1", "https://github.com/o/r/pulls/1",
 		"git://github.com/o/r/pull/1", " https://github.com/o/r/pull/1",
 		strings.Repeat("x", 2049),
 	}

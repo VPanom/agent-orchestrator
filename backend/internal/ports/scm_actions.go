@@ -62,3 +62,26 @@ type SCMReviewResolveRequest struct {
 type SCMReviewResolver interface {
 	ResolveReviewThread(ctx context.Context, request SCMReviewResolveRequest) error
 }
+
+// SCMReviewComment is one inline finding to attach to a posted review. Line
+// is the line number on the new side of the diff.
+type SCMReviewComment struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Body string `json:"body"`
+}
+
+// SCMReviewPostRequest asks the provider to post a comment-only review on a
+// pull request on behalf of AO's native reviewer.
+type SCMReviewPostRequest struct {
+	PR        SCMPRRef
+	CommitSHA string
+	Body      string
+	Comments  []SCMReviewComment
+}
+
+// SCMReviewPoster posts reviews for providers the reviewer agent cannot reach
+// with its own CLI tooling (e.g. Gitea). It returns the provider review id.
+type SCMReviewPoster interface {
+	PostReview(ctx context.Context, request SCMReviewPostRequest) (string, error)
+}

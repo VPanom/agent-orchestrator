@@ -13,7 +13,7 @@ Tracker intake needs both a per-project opt-in and the daemon-wide `AO_TRACKER_I
 
 ## Gitea
 
-Gitea support covers issues only; Gitea pull requests are not observed. Orchestrator connects to one Gitea instance, set in the daemon environment:
+Orchestrator connects to one Gitea instance, set in the daemon environment. The same settings also enable Gitea pull requests; see [Source control and pull requests](/plugins/scm#gitea).
 
 1. Set `AO_GITEA_URL` to the address you open Gitea at in a browser: `http://` or `https://`, the host, an optional port, and an optional sub-path, such as `http://gitea.lan:3000` or `https://git.example.com/gitea`. Orchestrator adds `/api/v1` itself.
 2. Set `AO_GITEA_TOKEN`, or `GITEA_TOKEN`, to a Gitea access token that can read the repository's issues. `AO_GITEA_TOKEN` wins when both are set.

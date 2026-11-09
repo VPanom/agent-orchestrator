@@ -380,6 +380,13 @@ func (s *Service) prWorkspaceRoot(ctx context.Context, rec domain.SessionRecord,
 			if urlErr != nil {
 				continue
 			}
+			if strings.EqualFold(pr.Provider, "gitea") {
+				// Gitea SSH remotes use a different port than the web host.
+				if repo, _, ok := domain.GiteaRepoRef(s.giteaBaseURL, strings.TrimSpace(rawURL)); ok && strings.ToLower(repo) == want {
+					return row.WorktreePath, remote, nil
+				}
+				continue
+			}
 			identity, parseErr := domain.ParseRepositoryIdentity(strings.TrimSpace(rawURL))
 			if parseErr != nil {
 				continue

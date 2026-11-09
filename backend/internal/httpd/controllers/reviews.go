@@ -83,10 +83,18 @@ type KillReviewResponse struct {
 
 // SubmitReviewItem is one review result in a batched submit request.
 type SubmitReviewItem struct {
-	RunID          string `json:"runId" description:"Review run id being completed."`
-	Verdict        string `json:"verdict" description:"Review verdict: approved or changes_requested."`
-	Body           string `json:"body,omitempty" description:"Review body recorded by AO. Required for changes_requested."`
-	GithubReviewID string `json:"githubReviewId,omitempty" description:"Id of the GitHub PR review the reviewer posted, if any."`
+	RunID          string                `json:"runId" description:"Review run id being completed."`
+	Verdict        string                `json:"verdict" description:"Review verdict: approved or changes_requested."`
+	Body           string                `json:"body,omitempty" description:"Review body recorded by AO. Required for changes_requested."`
+	GithubReviewID string                `json:"githubReviewId,omitempty" description:"Id of the GitHub PR review the reviewer posted, if any."`
+	Comments       []SubmitReviewComment `json:"comments,omitempty" description:"Inline findings AO posts on the provider when the reviewer could not post the review itself (Gitea PRs)."`
+}
+
+// SubmitReviewComment is one inline finding AO posts on the reviewer's behalf.
+type SubmitReviewComment struct {
+	Path string `json:"path" description:"Changed file path, relative to the repository root."`
+	Line int    `json:"line" description:"Line number on the new side of the diff."`
+	Body string `json:"body" description:"The finding that requires a change."`
 }
 
 // SubmitReviewInput is the body of POST /api/v1/sessions/{sessionId}/reviews/submit.
@@ -407,6 +415,7 @@ func (c *ReviewsController) submit(w http.ResponseWriter, r *http.Request) {
 				Verdict:        domain.ReviewVerdict(item.Verdict),
 				Body:           item.Body,
 				GithubReviewID: item.GithubReviewID,
+				Comments:       submitReviewComments(item.Comments),
 			})
 		}
 	} else {
@@ -449,4 +458,12 @@ func writeReviewError(w http.ResponseWriter, r *http.Request, err error) {
 		envelope.CaptureError(r, err)
 		envelope.WriteAPIError(w, r, http.StatusInternalServerError, "internal", "REVIEW_OPERATION_FAILED", "Review operation failed", nil)
 	}
+}
+
+func submitReviewComments(in []SubmitReviewComment) []ports.SCMReviewComment {
+	out := make([]ports.SCMReviewComment, 0, len(in))
+	for _, c := range in {
+		out = append(out, ports.SCMReviewComment{Path: c.Path, Line: c.Line, Body: c.Body})
+	}
+	return out
 }

@@ -39,3 +39,28 @@ func TestGiteaRepoRef(t *testing.T) {
 		}
 	}
 }
+
+func TestGiteaPullRefAndURL(t *testing.T) {
+	const base = "https://gitea.panom.se/sub/"
+	repo, n, ok := GiteaPullRef(base, "https://gitea.panom.se/sub/owner/repo/pulls/24")
+	if !ok || repo != "owner/repo" || n != 24 {
+		t.Fatalf("got %q %d %v", repo, n, ok)
+	}
+	if got := GiteaPullURL(base, repo, n); got != "https://gitea.panom.se/sub/owner/repo/pulls/24" {
+		t.Fatalf("GiteaPullURL = %q", got)
+	}
+	for _, raw := range []string{
+		"https://gitea.panom.se/sub/owner/repo",
+		"https://gitea.panom.se/sub/owner/repo/issues/3",
+		"https://gitea.panom.se/sub/owner/repo/pulls/x",
+		"https://gitea.panom.se/owner/repo/pulls/3",
+		"https://other.example/sub/owner/repo/pulls/3",
+	} {
+		if _, _, ok := GiteaPullRef(base, raw); ok {
+			t.Errorf("GiteaPullRef(%q) matched", raw)
+		}
+	}
+	if _, _, ok := GiteaPullRef("", "https://gitea.panom.se/owner/repo/pulls/3"); ok {
+		t.Error("matched without a configured instance")
+	}
+}

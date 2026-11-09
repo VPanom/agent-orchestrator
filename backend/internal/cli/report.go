@@ -45,8 +45,8 @@ func newReportCommand(ctx *commandContext) *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&o.note, "note", "", "Structured state note")
 	f.StringArrayVar(&o.artifacts, "artifact", nil, "Attach an opaque artifact reference (repeatable)")
-	f.StringArrayVar(&o.prsCreated, "pr-created", nil, "Attach a created GitHub PR or GitLab MR (repeatable)")
-	f.StringArrayVar(&o.prsReviewed, "pr-reviewed", nil, "Attach a reviewed GitHub PR or GitLab MR (repeatable)")
+	f.StringArrayVar(&o.prsCreated, "pr-created", nil, "Attach a created GitHub PR, GitLab MR or Gitea PR (repeatable)")
+	f.StringArrayVar(&o.prsReviewed, "pr-reviewed", nil, "Attach a reviewed GitHub PR, GitLab MR or Gitea PR (repeatable)")
 	f.BoolVar(&o.checkpoint, "checkpoint", false, "Report a checkpoint")
 	f.BoolVar(&o.needsInput, "needs-input", false, "Report that input is needed")
 	f.BoolVar(&o.stuck, "stuck", false, "Report that work is stuck")
@@ -107,7 +107,7 @@ func (c *commandContext) report(ctx context.Context, args []string, o reportOpti
 		}
 		if output.Kind == domain.ReportOutputPRCreated || output.Kind == domain.ReportOutputPRReviewed {
 			if _, err := domain.ParseChangeRequestURL(output.Reference); err != nil {
-				return usageError{errors.New("usage: --pr-created and --pr-reviewed require complete GitHub PR or GitLab MR URLs")}
+				return usageError{errors.New("usage: --pr-created and --pr-reviewed require complete GitHub PR, GitLab MR or Gitea PR URLs")}
 			}
 		}
 	}

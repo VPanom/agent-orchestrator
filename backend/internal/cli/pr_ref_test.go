@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"testing"
 )
 
@@ -120,5 +121,32 @@ func TestNumericClaimNestedNamespace(t *testing.T) {
 	if pHost != host || pOwner != owner || pRepo != repo || pNum != num {
 		t.Errorf("round-trip mismatch: got host=%q owner=%q repo=%q num=%d, want host=%q owner=%q repo=%q num=%d",
 			pHost, pOwner, pRepo, pNum, host, owner, repo, num)
+	}
+}
+
+// Gitea: a /pulls/N URL (optionally under a sub-path) is accepted as-is, and
+// a bare number against an SSH origin on a custom port resolves through
+// AO_GITEA_URL instead of becoming a GitLab merge-request URL.
+func TestResolvePRRefGitea(t *testing.T) {
+	c := &commandContext{}
+	ctx := context.Background()
+	for ref, want := range map[string]string{
+		"https://gitea.panom.se/owner/repo/pulls/24": "https://gitea.panom.se/owner/repo/pulls/24",
+		"http://host:3000/gitea/owner/repo/pulls/7/": "http://host:3000/gitea/owner/repo/pulls/7",
+	} {
+		got, err := c.resolvePRRef(ctx, ref, projectDetails{})
+		if err != nil || got != want {
+			t.Errorf("resolvePRRef(%q) = %q, %v; want %q", ref, got, err, want)
+		}
+	}
+
+	project := projectDetails{Repo: "ssh://git@gitea.panom.se:30009/owner/repo.git"}
+	t.Setenv("AO_GITEA_URL", "https://gitea.panom.se")
+	if got, err := c.resolvePRRef(ctx, "24", project); err != nil || got != "https://gitea.panom.se/owner/repo/pulls/24" {
+		t.Errorf("numeric gitea ref = %q, %v", got, err)
+	}
+	// GitLab numeric refs are unchanged when AO_GITEA_URL points elsewhere.
+	if got, err := c.resolvePRRef(ctx, "9", projectDetails{Repo: "https://gitlab.com/castai/ctxd"}); err != nil || got != "https://gitlab.com/castai/ctxd/-/merge_requests/9" {
+		t.Errorf("numeric gitlab ref = %q, %v", got, err)
 	}
 }

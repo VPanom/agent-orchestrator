@@ -935,10 +935,10 @@ func Run(buildVersion string) error {
 		}()
 		lcStack.LCM.SetUsageFinalizer(usageCollector)
 	}
-	lcStack.scmDone = startSCMObserver(ctx, store, lcStack.LCM, sessionSvc, cfg.GitLab, reviewRefresher, log)
+	lcStack.scmDone = startSCMObserver(ctx, store, lcStack.LCM, sessionSvc, cfg.GitLab, cfg.Gitea, reviewRefresher, log)
 	var prActions prsvc.ActionManager
-	prReader := newMultiSCMProvider(cfg.GitLab, log)
-	prMerger := newMultiSCMMerger(cfg.GitLab, log)
+	prReader := newMultiSCMProvider(cfg.GitLab, cfg.Gitea, log)
+	prMerger := newMultiSCMMerger(cfg.GitLab, cfg.Gitea, log)
 	if prReader != nil && prMerger != nil {
 		prActions = prsvc.NewActionService(prsvc.ActionDeps{
 			Store:        store,

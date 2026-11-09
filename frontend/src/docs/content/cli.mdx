@@ -68,7 +68,7 @@ Use `ao session ls` for sessions.
 
 ### `ao doctor`
 
-Checks Orchestrator configuration, the data directory and database, daemon state, Git, GitHub authentication, and the platform runtime (`tmux` on macOS/Linux; ConPTY is built into Windows).
+Checks Orchestrator configuration, the data directory and database, daemon state, Git, GitHub and GitLab authentication, Gitea (URL, token, API access, and read access to registered Gitea repositories, without printing the token), and the platform runtime (`tmux` on macOS/Linux; ConPTY is built into Windows).
 
 | Flag | Purpose |
 | --- | --- |
@@ -147,7 +147,7 @@ Orchestrator chooses a project in this order: `--project`, `AO_PROJECT_ID`, the 
 | `ao session rename <id> <name>` | Change its display name. The project orchestrator cannot be renamed. |
 | `ao session cleanup` | Reclaim eligible terminated workspaces; supports `--dry-run`. Workspaces already released are not listed again. |
 | `ao session delete <id>` | Permanently delete a terminated session and its AO history once its worktree is cleaned up; `--cleanup` cleans it up first, never forced. Branches, PRs and agent account usage totals are kept. |
-| `ao session claim-pr [<session-id>] <pr-ref>` | Attach an existing PR; omitting the session uses `AO_SESSION_ID`. |
+| `ao session claim-pr [<session-id>] <pr-ref>` | Attach an existing PR: a number, or a GitHub PR, GitLab MR, or Gitea PR URL. Omitting the session uses `AO_SESSION_ID`. |
 
 Most lookup commands accept `--project` to disambiguate a session ID.
 
@@ -196,7 +196,7 @@ ao report --done --note "Focused tests passed"
 | `ao review ls [worker-session-id]` | List review state for a worker. Defaults to the calling session. |
 | `ao review trigger [worker-session-id]` | Start Orchestrator's reviewer on a worker's PR heads; defaults to the calling session. Fetches the PRs fresh from the provider first; `--pr <url>` reviews only that PR, attaching it if needed. Fails on a head that already has a review unless `--rerun`. `--agent`, `--model`, `--effort` pick the reviewer for one pass; `--no-inject` keeps auto-inject unchanged. Aliases: `execute`, `restart`. |
 | `ao review cancel [worker-session-id]` | Cancel every running reviewer. Defaults to the calling session. Alias: `stop`. |
-| `ao review submit [worker-session-id]` | Submit a reviewer verdict and results. |
+| `ao review submit [worker-session-id]` | Submit a reviewer verdict and results. For Gitea PRs, a `--reviews` entry may carry `comments` (`path`, `line`, `body`) that the daemon posts as the review. |
 
 Use each subcommand's help for required review-run IDs, verdict values, and file/stdin inputs.
 

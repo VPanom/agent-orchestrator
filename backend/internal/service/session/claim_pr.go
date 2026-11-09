@@ -58,7 +58,7 @@ func (s *Service) ListPRs(ctx context.Context, id domain.SessionID) ([]domain.PR
 	return s.listPRFacts(ctx, id)
 }
 
-// ClaimPR attaches a live pull request (GitHub PR or GitLab MR) to a worker session and persists the current SCM facts atomically.
+// ClaimPR attaches a live pull request (GitHub PR, GitLab MR or Gitea PR) to a worker session and persists the current SCM facts atomically.
 func (s *Service) ClaimPR(ctx context.Context, id domain.SessionID, ref string, opts ClaimPROptions) (ClaimPRResult, error) {
 	rec, ok, err := s.store.GetSession(ctx, id)
 	if err != nil {
@@ -90,7 +90,7 @@ func (s *Service) ClaimPR(ctx context.Context, id domain.SessionID, ref string, 
 		return ClaimPRResult{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
 	}
 	claimOrigin := firstNonEmpty(project.Config.CanonicalRepoURL, project.RepoOriginURL)
-	prURL, number, err := normalizePRRef(ref, claimOrigin)
+	prURL, number, err := s.normalizePRRef(ref, claimOrigin)
 	if err != nil {
 		return ClaimPRResult{}, err
 	}
@@ -100,7 +100,7 @@ func (s *Service) ClaimPR(ctx context.Context, id domain.SessionID, ref string, 
 	if s.scm == nil || s.prClaimer == nil {
 		return ClaimPRResult{}, ErrSCMUnavailable
 	}
-	repo, err := scmRepoForClaim(prURL)
+	repo, err := s.scmRepoForClaim(prURL)
 	if err != nil {
 		return ClaimPRResult{}, err
 	}
@@ -162,8 +162,8 @@ func (s *Service) ClaimPR(ctx context.Context, id domain.SessionID, ref string, 
 }
 
 func (s *Service) requireProjectPRRepository(ctx context.Context, project domain.ProjectRecord, prURL string) error {
-	originErr := requireSameRepo(prURL, project.RepoOriginURL)
-	if originErr == nil || (project.Config.CanonicalRepoURL != "" && requireSameRepo(prURL, project.Config.CanonicalRepoURL) == nil) {
+	originErr := s.requireSameRepo(prURL, project.RepoOriginURL)
+	if originErr == nil || (project.Config.CanonicalRepoURL != "" && s.requireSameRepo(prURL, project.Config.CanonicalRepoURL) == nil) {
 		return nil
 	}
 	if project.Kind.WithDefault() != domain.ProjectKindWorkspace {
@@ -177,7 +177,7 @@ func (s *Service) requireProjectPRRepository(ctx context.Context, project domain
 		// A workspace root and local-only children may have no SCM identity.
 		// Only registered, parseable origins authorize a child repository;
 		// arbitrary checkout remotes never grant claim permission.
-		if requireSameRepo(prURL, repo.RepoOriginURL) == nil {
+		if s.requireSameRepo(prURL, repo.RepoOriginURL) == nil {
 			return nil
 		}
 	}
@@ -403,6 +403,50 @@ func claimedFirst(prs []domain.PRFacts, prURL string) []domain.PRFacts {
 	copy(prs[1:idx+1], prs[0:idx])
 	prs[0] = claimed
 	return prs
+}
+
+// normalizePRRef resolves Gitea refs against the configured instance
+// (AO_GITEA_URL) before the host-based GitHub/GitLab parsing. Gitea's SSH
+// port differs from its web port, so a Gitea origin cannot be turned into a
+// web URL from its host alone.
+func (s *Service) normalizePRRef(ref, repoOrigin string) (string, int, error) {
+	trimmed := strings.TrimPrefix(strings.TrimSpace(ref), "#")
+	if n, err := strconv.Atoi(trimmed); err == nil && n > 0 {
+		if repo, _, ok := domain.GiteaRepoRef(s.giteaBaseURL, repoOrigin); ok {
+			return domain.GiteaPullURL(s.giteaBaseURL, repo, n), n, nil
+		}
+	} else if repo, n, ok := domain.GiteaPullRef(s.giteaBaseURL, trimmed); ok {
+		return domain.GiteaPullURL(s.giteaBaseURL, repo, n), n, nil
+	}
+	return normalizePRRef(ref, repoOrigin)
+}
+
+// requireSameRepo matches a Gitea PR against an origin by instance and
+// owner/repo, since SSH origins carry a different port than web URLs.
+func (s *Service) requireSameRepo(prURL, repoOrigin string) error {
+	repo, _, ok := domain.GiteaPullRef(s.giteaBaseURL, prURL)
+	if !ok {
+		return requireSameRepo(prURL, repoOrigin)
+	}
+	if originRepo, _, ok := domain.GiteaRepoRef(s.giteaBaseURL, repoOrigin); ok && strings.EqualFold(originRepo, repo) {
+		return nil
+	}
+	return ErrProjectMismatch
+}
+
+// scmRepoForClaim routes a Gitea PR URL to the Gitea provider; the host is
+// the instance's web host, matching the provider's ParseRepository.
+func (s *Service) scmRepoForClaim(prURL string) (ports.SCMRepo, error) {
+	repo, _, ok := domain.GiteaPullRef(s.giteaBaseURL, prURL)
+	if !ok {
+		return scmRepoForClaim(prURL)
+	}
+	base, err := url.Parse(strings.TrimSpace(s.giteaBaseURL))
+	if err != nil {
+		return ports.SCMRepo{}, ErrInvalidPRRef
+	}
+	owner, name, _ := strings.Cut(repo, "/")
+	return ports.SCMRepo{Provider: "gitea", Host: strings.ToLower(base.Host), Owner: owner, Name: name, Repo: repo}, nil
 }
 
 func normalizePRRef(ref, repoOrigin string) (string, int, error) {

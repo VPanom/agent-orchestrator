@@ -45,7 +45,7 @@ Saving a local artifact or attaching its reference to an AO report is not
 external publishing authorization. Publish externally only within the
 user-authorized scope.
 
-`--pr-created` and `--pr-reviewed` accept complete GitHub PR or GitLab MR URLs.
+`--pr-created` and `--pr-reviewed` accept complete GitHub PR, GitLab MR or Gitea PR URLs.
 
 `--needs-input` requests immediate non-interrupting delivery. `--stuck`
 requests immediate delivery plus a rate-limited interrupt. Informational work

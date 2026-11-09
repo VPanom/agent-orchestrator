@@ -43,7 +43,7 @@ func TestSCMWiring_MultiProviderSatisfiesScopedIdentityResolver(t *testing.T) {
 // newMultiSCMProvider helper (used outside the observer) also returns a value
 // that satisfies ScopedIdentityResolver.
 func TestSCMWiring_NewMultiSCMProviderReturnsScopedResolver(t *testing.T) {
-	multi := newMultiSCMProvider(testGitLabConfig(), slog.Default())
+	multi := newMultiSCMProvider(testGitLabConfig(), config.GiteaConfig{}, slog.Default())
 	if multi == nil {
 		t.Skip("no SCM provider available (missing tokens)")
 	}
@@ -84,4 +84,22 @@ func TestSCMWiring_ObserverConfigHasScopedResolver(t *testing.T) {
 
 func testGitLabConfig() config.GitLabConfig {
 	return config.GitLabConfig{}
+}
+
+// A Gitea checkout's SSH remote (custom SSH port, hostname-only match) must
+// route to the Gitea provider, not fall through to GitLab, or the observer
+// never discovers its PRs.
+func TestMultiSCMProviderRoutesGiteaRemote(t *testing.T) {
+	t.Setenv("AO_GITEA_TOKEN", "tok")
+	multi := newMultiSCMProvider(testGitLabConfig(), config.GiteaConfig{BaseURL: "https://gitea.panom.se"}, slog.Default())
+	if multi == nil {
+		t.Fatal("multi provider is nil")
+	}
+	repo, ok := multi.ParseRepository("ssh://git@gitea.panom.se:30009/owner/repo.git")
+	if !ok || repo.Provider != "gitea" || repo.Host != "gitea.panom.se" || repo.Repo != "owner/repo" {
+		t.Fatalf("repo = %+v ok=%v", repo, ok)
+	}
+	if merger := newMultiSCMMerger(testGitLabConfig(), config.GiteaConfig{BaseURL: "https://gitea.panom.se"}, slog.Default()); merger == nil {
+		t.Fatal("merger is nil")
+	}
 }

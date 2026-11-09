@@ -831,3 +831,80 @@ func writeHooksLogLines(t *testing.T, dataDir string, lines ...string) {
 		t.Fatal(err)
 	}
 }
+
+func TestDoctorGiteaNotConfigured(t *testing.T) {
+	setConfigEnv(t)
+	t.Setenv("AO_GITEA_URL", "")
+	c := doctorContext(t, map[string]string{"git": "/bin/git"}, func(context.Context, string, ...string) ([]byte, error) {
+		return []byte("git version 2.43.0\n"), nil
+	})
+	check := findDoctorCheck(t, c.runDoctor(context.Background()), "gitea-url")
+	if check.Level != doctorPass || check.Section != doctorSectionGitea || !strings.Contains(check.Message, "not configured") {
+		t.Fatalf("gitea-url = %+v", check)
+	}
+}
+
+func TestDoctorCheckGitea(t *testing.T) {
+	const secret = "s3cret-gitea-token"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "token "+secret {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/gitea/api/v1/user":
+			_, _ = io.WriteString(w, `{"login":"victor"}`)
+		case "/gitea/api/v1/repos/owner/repo":
+			_, _ = io.WriteString(w, `{"full_name":"owner/repo"}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := doctorContext(t, nil, nil)
+	c.deps.HTTPClient = srv.Client()
+	base := srv.URL + "/gitea/"
+
+	t.Setenv("AO_GITEA_TOKEN", "")
+	t.Setenv("GITEA_TOKEN", "")
+	got := c.checkGitea(context.Background(), base, nil, nil)
+	if len(got) != 2 || got[1].Name != "gitea-token" || got[1].Level != doctorWarn {
+		t.Fatalf("no token = %+v", got)
+	}
+
+	t.Setenv("GITEA_TOKEN", secret)
+	got = c.checkGitea(context.Background(), base, []string{"owner/repo", "owner/hidden"}, nil)
+	want := []struct {
+		name  string
+		level doctorLevel
+		msg   string
+	}{
+		{"gitea-url", doctorPass, srv.URL + "/gitea"},
+		{"gitea-token", doctorPass, "GITEA_TOKEN"},
+		{"gitea-api", doctorPass, "victor"},
+		{"gitea-repo", doctorPass, "owner/repo"},
+		{"gitea-repo", doctorFail, "owner/hidden"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("checks = %+v", got)
+	}
+	for i, w := range want {
+		if got[i].Name != w.name || got[i].Level != w.level || !strings.Contains(got[i].Message, w.msg) {
+			t.Errorf("check %d = %+v, want %+v", i, got[i], w)
+		}
+		if strings.Contains(got[i].Message, secret) {
+			t.Fatalf("token leaked in %+v", got[i])
+		}
+	}
+
+	t.Setenv("GITEA_TOKEN", "wrong")
+	got = c.checkGitea(context.Background(), base, nil, nil)
+	if last := got[len(got)-1]; last.Name != "gitea-api" || last.Level != doctorFail || strings.Contains(last.Message, "wrong") {
+		t.Fatalf("rejected token = %+v", last)
+	}
+
+	got = c.checkGitea(context.Background(), "https://user:pw@gitea.example", nil, nil)
+	if len(got) != 1 || got[0].Level != doctorFail || strings.Contains(got[0].Message, "pw") {
+		t.Fatalf("credentialed URL = %+v", got)
+	}
+}

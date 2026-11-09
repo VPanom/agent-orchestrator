@@ -7812,6 +7812,14 @@ export interface components {
         SubmitAgentUILoginCodeRequest: {
             code: string;
         };
+        SubmitReviewComment: {
+            /** @description The finding that requires a change. */
+            body: string;
+            /** @description Line number on the new side of the diff. */
+            line: number;
+            /** @description Changed file path, relative to the repository root. */
+            path: string;
+        };
         SubmitReviewInput: {
             /** @description Review body recorded by AO. Required for changes_requested. */
             body?: string;
@@ -7827,6 +7835,8 @@ export interface components {
         SubmitReviewItem: {
             /** @description Review body recorded by AO. Required for changes_requested. */
             body?: string;
+            /** @description Inline findings AO posts on the provider when the reviewer could not post the review itself (Gitea PRs). */
+            comments?: components["schemas"]["SubmitReviewComment"][];
             /** @description Id of the GitHub PR review the reviewer posted, if any. */
             githubReviewId?: string;
             /** @description Review run id being completed. */

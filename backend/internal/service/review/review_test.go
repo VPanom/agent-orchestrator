@@ -1296,3 +1296,47 @@ func TestTriggerRequestedNamedPRSkipsTheBranchLookup(t *testing.T) {
 		t.Fatalf("order = %v finds = %d, want the named PR attached and reviewed without a branch lookup", order, refresher.finds)
 	}
 }
+
+type fakeReviewPoster struct {
+	got []ports.SCMReviewPostRequest
+	id  string
+	err error
+}
+
+func (f *fakeReviewPoster) PostReview(_ context.Context, req ports.SCMReviewPostRequest) (string, error) {
+	f.got = append(f.got, req)
+	return f.id, f.err
+}
+
+// A Gitea reviewer cannot post with gh, so AO posts the review and its inline
+// comments through the provider and records the returned id.
+func TestSubmitPostsReviewThroughProviderWhenReviewerCouldNot(t *testing.T) {
+	const prURL = "https://gitea.example/owner/repo/pulls/7"
+	st := &fakeStore{
+		ok:  true,
+		run: domain.ReviewRun{ID: "run-1", SessionID: "mer-1", PRURL: prURL, TargetSHA: "abc", Status: domain.ReviewRunRunning},
+		prs: []domain.PullRequest{{URL: prURL, Number: 7, Provider: "gitea", Host: "gitea.example", Repo: "owner/repo"}},
+	}
+	poster := &fakeReviewPoster{id: "55"}
+	refresher := &recordingReviewRefresher{}
+	svc := New(nil, st, WithReviewPoster(poster), WithThreadRefresher(refresher))
+	comments := []ports.SCMReviewComment{{Path: "a.go", Line: 3, Body: "fix"}}
+	runs, err := svc.SubmitMany(context.Background(), "mer-1", []SubmittedReview{{RunID: "run-1", Verdict: domain.VerdictChangesRequested, Body: "needs work", Comments: comments}})
+	if err != nil {
+		t.Fatalf("SubmitMany: %v", err)
+	}
+	if runs[0].GithubReviewID != "55" || len(refresher.prURLs) != 1 {
+		t.Fatalf("run = %+v refreshes = %v", runs[0], refresher.prURLs)
+	}
+	if len(poster.got) != 1 || poster.got[0].PR.Repo.Owner != "owner" || poster.got[0].CommitSHA != "abc" || len(poster.got[0].Comments) != 1 {
+		t.Fatalf("posted = %+v", poster.got)
+	}
+
+	// A post failure still records the result, without a provider id.
+	st.run = domain.ReviewRun{ID: "run-2", SessionID: "mer-1", PRURL: prURL, Status: domain.ReviewRunRunning}
+	poster.err = errors.New("boom")
+	runs, err = svc.SubmitMany(context.Background(), "mer-1", []SubmittedReview{{RunID: "run-2", Verdict: domain.VerdictApproved}})
+	if err != nil || runs[0].GithubReviewID != "" {
+		t.Fatalf("runs=%+v err=%v", runs, err)
+	}
+}

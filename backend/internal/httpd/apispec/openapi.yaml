@@ -21986,6 +21986,22 @@ components:
       required:
       - code
       type: object
+    SubmitReviewComment:
+      properties:
+        body:
+          description: The finding that requires a change.
+          type: string
+        line:
+          description: Line number on the new side of the diff.
+          type: integer
+        path:
+          description: Changed file path, relative to the repository root.
+          type: string
+      required:
+      - path
+      - line
+      - body
+      type: object
     SubmitReviewInput:
       properties:
         body:
@@ -22011,6 +22027,12 @@ components:
         body:
           description: Review body recorded by AO. Required for changes_requested.
           type: string
+        comments:
+          description: Inline findings AO posts on the provider when the reviewer
+            could not post the review itself (Gitea PRs).
+          items:
+            $ref: '#/components/schemas/SubmitReviewComment'
+          type: array
         githubReviewId:
           description: Id of the GitHub PR review the reviewer posted, if any.
           type: string

@@ -113,7 +113,7 @@ func (s *Service) ListWorkspaceBranches(ctx context.Context, id domain.SessionID
 		return WorkspaceBranches{}, err
 	}
 	checkedOut.UpdatedAt = detachedAt
-	owners := prBranchOwners(ctx, root, checkedOut, locals, prs)
+	owners := prBranchOwners(ctx, root, checkedOut, locals, prs, s.requireSameRepo)
 	result.Branches, result.Truncated = workspaceBranchRows(checkedOut, locals, prs, owners, result.DefaultBranch)
 	result.Truncated = result.Truncated || localsTruncated
 	return result, nil
@@ -123,7 +123,7 @@ func (s *Service) ListWorkspaceBranches(ctx context.Context, id domain.SessionID
 // branch's own: the PR's head is that branch's tip, either here or on a remote
 // of the PR's repository. A fork's PR, or another repository's, that only
 // shares the branch name never matches, so it keeps a row of its own.
-func prBranchOwners(ctx context.Context, root string, checkedOut WorkspaceBranch, locals []WorkspaceBranch, prs []domain.PullRequest) map[string]bool {
+func prBranchOwners(ctx context.Context, root string, checkedOut WorkspaceBranch, locals []WorkspaceBranch, prs []domain.PullRequest, requireSameRepo func(prURL, origin string) error) map[string]bool {
 	owners := map[string]bool{}
 	if len(prs) == 0 {
 		return owners
